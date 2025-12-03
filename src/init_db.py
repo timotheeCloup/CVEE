@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import psycopg2
 
-#Load environment variables
+
 load_dotenv()
 
 DB_HOST = os.getenv("DB_HOST")
@@ -15,12 +15,48 @@ DB_PORT= os.getenv("DB_PORT")
 # Create tables
 CREATE_METADATA_TABLE = """
 CREATE TABLE IF NOT EXISTS jobs_metadata (
-    id SERIAL PRIMARY KEY,
-    job_id VARCHAR(255) UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    location VARCHAR(255),
+    id TEXT PRIMARY KEY,
+
+    intitule TEXT,
+    typeContratLibelle TEXT,
+    competences JSONB,
+    complementExercice TEXT,
+    experienceExige TEXT,
+    dateCreation TEXT,
+    dateActualisation TEXT,
+    contact JSONB,
+    deplacementCode TEXT,
+    agence JSONB,
+    alternance BOOLEAN,
+    contexteTravail JSONB,
+    qualificationCode TEXT,
+    typeContrat TEXT,
+    appellationlibelle TEXT,
+    lieuTravail JSONB,
+    qualificationLibelle TEXT,
+    experienceLibelle TEXT,
+    romeLibelle TEXT,
+    secteurActiviteLibelle TEXT,
+    langues JSONB,
+    entrepriseAdaptee BOOLEAN,
     description TEXT,
-    url TEXT
+    dureeTravailLibelleConverti TEXT,
+    employeurHandiEngage BOOLEAN,
+    origineOffre JSONB,
+    dureeTravailLibelle TEXT,
+    formations JSONB,
+    trancheEffectifEtab TEXT,
+    accessibleTH BOOLEAN,
+    codeNAF TEXT,
+    romeCode TEXT,
+    deplacementLibelle TEXT,
+    qualitesProfessionnelles JSONB,
+    secteurActivite JSONB,
+    natureContrat TEXT,
+    nombrePostes INT,
+    offresManqueCandidats BOOLEAN,
+    salaire JSONB,
+    entreprise JSONB
 );
 """
 
@@ -50,6 +86,7 @@ try:
     print("Extension pgvector created.")
 
     # Create the tables
+    #cur.execute("DROP TABLE IF EXISTS jobs_metadata CASCADE;") # recreate
     cur.execute(CREATE_METADATA_TABLE)
     cur.execute(CREATE_VECTORS_TABLE)
     conn.commit()

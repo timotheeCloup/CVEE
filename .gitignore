@@ -42,3 +42,7 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Other
+
+draft.txt
