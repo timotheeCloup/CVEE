@@ -21,15 +21,23 @@ services:
     container_name: cvee-api
     ports:
       - "8000:8000"
+    volumes:
+    - ../api:/app
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: cvee_db
-      EMBEDDING_API_URL: http://embedding-service:8001/embed
     depends_on:
-      -postgres
+      postgres:
+        condition: service_healthy
+  cvee-ui:
+    build: ../ui
+    ports:
+      - "8501:8501"
+    depends_on:
+      - cvee-api
         
 
 volumes:

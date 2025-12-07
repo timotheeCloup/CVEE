@@ -12,7 +12,7 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
-TOP_K =5
+TOP_K = 10
 
 def extract_text_from_pdf(file_bytes):
     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
