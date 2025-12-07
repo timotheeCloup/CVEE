@@ -1,6 +1,14 @@
 # Core dependencies
 python-dotenv>=0.21.0
-psycopg2-binary>=2.9.0
+#psycopg2-binary>=2.9.0
 requests>=2.28.0
 numpy>=1.23.0
 pandas>=1.5.0
+#psycopg2>=2.9.0
+#boto3>=1.26.0
+pyarrow>=11.0.0
+s3fs
+pydantic>=1.10.0
+sentence-transformers>=2.2.2
+fastapi>=0.95.0
+uvicorn>=0.22.0
