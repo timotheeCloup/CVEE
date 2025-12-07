@@ -15,48 +15,56 @@ DB_PORT= os.getenv("DB_PORT")
 # Create tables
 CREATE_METADATA_TABLE = """
 CREATE TABLE IF NOT EXISTS jobs_metadata (
-    id TEXT PRIMARY KEY,
+    job_id TEXT PRIMARY KEY,
 
-    intitule TEXT,
-    typeContratLibelle TEXT,
-    competences JSONB,
-    complementExercice TEXT,
-    experienceExige TEXT,
+    job_title TEXT,
+    description TEXT,
     dateCreation TEXT,
     dateActualisation TEXT,
-    contact JSONB,
-    deplacementCode TEXT,
-    agence JSONB,
-    alternance BOOLEAN,
-    contexteTravail JSONB,
-    qualificationCode TEXT,
-    typeContrat TEXT,
-    appellationlibelle TEXT,
+
+    -- Structs (mapped to JSONB)
     lieuTravail JSONB,
-    qualificationLibelle TEXT,
-    experienceLibelle TEXT,
-    romeLibelle TEXT,
-    secteurActiviteLibelle TEXT,
-    langues JSONB,
-    entrepriseAdaptee BOOLEAN,
-    description TEXT,
-    dureeTravailLibelleConverti TEXT,
-    employeurHandiEngage BOOLEAN,
+    entreprise JSONB,
+    contact JSONB,
+    agence JSONB,
     origineOffre JSONB,
-    dureeTravailLibelle TEXT,
-    formations JSONB,
-    trancheEffectifEtab TEXT,
-    accessibleTH BOOLEAN,
-    codeNAF TEXT,
-    romeCode TEXT,
-    deplacementLibelle TEXT,
-    qualitesProfessionnelles JSONB,
-    secteurActivite JSONB,
-    natureContrat TEXT,
-    nombrePostes INT,
-    offresManqueCandidats BOOLEAN,
+    contexteTravail JSONB,
     salaire JSONB,
-    entreprise JSONB
+
+    -- Arrays (mapped to JSONB)
+    competences JSONB,
+    formations JSONB,
+    langues JSONB,
+    qualitesProfessionnelles JSONB,
+
+    -- Simple Types
+    romeCode TEXT,
+    romeLibelle TEXT,
+    appellationlibelle TEXT,
+    typeContrat TEXT,
+    typeContratLibelle TEXT,
+    natureContrat TEXT,
+    experienceExige TEXT,
+    experienceLibelle TEXT,
+    dureeTravailLibelle TEXT,
+    dureeTravailLibelleConverti TEXT,
+    alternance BOOLEAN,
+    nombrePostes INTEGER, 
+    accessibleTH BOOLEAN,
+    qualificationCode TEXT,
+    qualificationLibelle TEXT,
+    codeNAF TEXT,
+    secteurActivite TEXT,
+    secteurActiviteLibelle TEXT,
+    trancheEffectifEtab TEXT,
+    offresManqueCandidats BOOLEAN,
+    entrepriseAdaptee BOOLEAN,
+    employeurHandiEngage BOOLEAN,
+    deplacementCode TEXT,
+    deplacementLibelle TEXT,
+    experienceCommentaire TEXT,
+    permis TEXT,
+    complementExercice TEXT
 );
 """
 
@@ -64,9 +72,13 @@ CREATE TABLE IF NOT EXISTS jobs_metadata (
 # We will use a typical dimension of 768
 CREATE_VECTORS_TABLE = """
 CREATE TABLE IF NOT EXISTS jobs_vectors (
-    id SERIAL PRIMARY KEY,
-    job_id VARCHAR(255) REFERENCES jobs_metadata(job_id),
-    embedding VECTOR(768) NOT NULL
+    job_id TEXT PRIMARY KEY,
+    embedding JSONB NOT NULL,
+    --foreign key constraint
+    CONSTRAINT fk_job
+        FOREIGN KEY (job_id)
+        REFERENCES jobs_metadata(job_id)
+        ON DELETE CASCADE
 );
 """
 
@@ -86,7 +98,8 @@ try:
     print("Extension pgvector created.")
 
     # Create the tables
-    #cur.execute("DROP TABLE IF EXISTS jobs_metadata CASCADE;") # recreate
+    cur.execute("DROP TABLE IF EXISTS jobs_metadata CASCADE;")
+    cur.execute("DROP TABLE IF EXISTS jobs_vectors CASCADE;") 
     cur.execute(CREATE_METADATA_TABLE)
     cur.execute(CREATE_VECTORS_TABLE)
     conn.commit()

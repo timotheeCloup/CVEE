@@ -44,5 +44,6 @@ temp/
 *.tmp
 
 # Other
-
+sandbox/
 draft.txt
+docker/
