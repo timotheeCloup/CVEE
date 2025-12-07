@@ -87,8 +87,8 @@ for key in metadata_keys:
 for key in embeddings_keys:
     df_vec = read_parquet_from_s3(AWS_S3_BUCKET_NAME, key)
 
-    # JSON string to JSON object
-    df_vec["embedding"] = df_vec["embedding"].apply(lambda x: json.dumps(x))
+    # JSON string to vector list
+    df_vec["embedding"] = df_vec["embedding"].apply(lambda x: list(x) if isinstance(x, list) else list(json.loads(x)))
 
     #ingestion into Postgres
     for _, row in df_vec.iterrows():

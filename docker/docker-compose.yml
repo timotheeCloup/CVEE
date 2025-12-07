@@ -16,5 +16,21 @@ services:
       timeout: 5s
       retries: 5
 
+  cvee-api:
+    build: ../api
+    container_name: cvee-api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: cvee_db
+      EMBEDDING_API_URL: http://embedding-service:8001/embed
+    depends_on:
+      -postgres
+        
+
 volumes:
   postgres_data:

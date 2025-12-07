@@ -69,11 +69,11 @@ CREATE TABLE IF NOT EXISTS jobs_metadata (
 """
 
 # Table for vectors
-# We will use a typical dimension of 768
+# We will use a typical dimension of 384
 CREATE_VECTORS_TABLE = """
 CREATE TABLE IF NOT EXISTS jobs_vectors (
     job_id TEXT PRIMARY KEY,
-    embedding JSONB NOT NULL,
+    embedding vector(384),
     --foreign key constraint
     CONSTRAINT fk_job
         FOREIGN KEY (job_id)
