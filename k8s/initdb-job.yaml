@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-db
+  namespace: cvee
+spec:
+  template:
+    spec:
+      containers:
+        - name: init-db
+          image: init-db:latest   # doit correspondre à l'image chargée
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Never
+  backoffLimit: 1

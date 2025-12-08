@@ -47,3 +47,5 @@ temp/
 sandbox/
 draft.txt
 docker/
+k8s/secret-aws.yaml
+k8s/secret-postgres.yaml

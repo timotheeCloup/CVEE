@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cvee-ui
+  namespace: cvee
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cvee-ui
+  template:
+    metadata:
+      labels:
+        app: cvee-ui
+    spec:
+      containers:
+        - name: cvee-ui
+          image: docker-cvee-ui:latest
+          imagePullPolicy: IfNotPresent  
+          ports:
+            - containerPort: 8501

@@ -2,7 +2,8 @@
 import streamlit as st
 import requests
 
-API_URL = "http://cvee-api:8000/embed-cv"
+API_URL = "http://cvee-api:8000/embed-cv"     
+#API_URL = "http://cvee-api.cvee.svc.cluster.local:8000/embed-cv" # Alternative internal URL
 
 st.set_page_config(page_title="CV-Embedding Engine", layout="centered")
 

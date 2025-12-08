@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ingest-db
+  namespace: cvee
+spec:
+  schedule: "0 2 1 * *" #monthly  
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: ingest-db
+              image: ingest-db:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DB_HOST
+                  value: postgres
+                - name: DB_PORT
+                  value: "5432"
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-secret
+                      key: POSTGRES_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-secret
+                      key: POSTGRES_PASSWORD
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-secret
+                      key: POSTGRES_DB
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-secret
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-secret
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_S3_BUCKET_NAME
+                  value: "cvee-bucket-eu-north-1"
+          restartPolicy: OnFailure

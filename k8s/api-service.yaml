@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cvee-api
+  namespace: cvee
+spec:
+  type: ClusterIP   
+  selector:
+    app: cvee-api
+  ports:
+    - port: 8000    
+      targetPort: 8000
