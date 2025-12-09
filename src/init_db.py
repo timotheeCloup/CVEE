@@ -13,16 +13,15 @@ DB_PORT= os.getenv("DB_PORT")
 
 # Define SQL commands
 # Create tables
-CREATE_METADATA_TABLE = """
-CREATE TABLE IF NOT EXISTS jobs_metadata (
+CREATE_SILVER_TABLE = """
+CREATE TABLE IF NOT EXISTS jobs_silver (
     job_id TEXT PRIMARY KEY,
 
-    job_title TEXT,
+    intitule TEXT,
     description TEXT,
     dateCreation TEXT,
     dateActualisation TEXT,
 
-    -- Structs (mapped to JSONB)
     lieuTravail JSONB,
     entreprise JSONB,
     contact JSONB,
@@ -31,13 +30,12 @@ CREATE TABLE IF NOT EXISTS jobs_metadata (
     contexteTravail JSONB,
     salaire JSONB,
 
-    -- Arrays (mapped to JSONB)
     competences JSONB,
     formations JSONB,
     langues JSONB,
     qualitesProfessionnelles JSONB,
+    permis JSONB,
 
-    -- Simple Types
     romeCode TEXT,
     romeLibelle TEXT,
     appellationlibelle TEXT,
@@ -63,21 +61,21 @@ CREATE TABLE IF NOT EXISTS jobs_metadata (
     deplacementCode TEXT,
     deplacementLibelle TEXT,
     experienceCommentaire TEXT,
-    permis TEXT,
-    complementExercice TEXT
+    complementExercice TEXT,
+    ingestion_date DATE
 );
 """
 
 # Table for vectors
 # We will use a typical dimension of 384
-CREATE_VECTORS_TABLE = """
-CREATE TABLE IF NOT EXISTS jobs_vectors (
+CREATE_GOLD_TABLE = """
+CREATE TABLE IF NOT EXISTS jobs_gold (
     job_id TEXT PRIMARY KEY,
     embedding vector(384),
     --foreign key constraint
     CONSTRAINT fk_job
         FOREIGN KEY (job_id)
-        REFERENCES jobs_metadata(job_id)
+        REFERENCES jobs_silver(job_id)
         ON DELETE CASCADE
 );
 """
@@ -98,12 +96,12 @@ try:
     print("Extension pgvector created.")
 
     # Create the tables
-    cur.execute("DROP TABLE IF EXISTS jobs_metadata CASCADE;")
-    cur.execute("DROP TABLE IF EXISTS jobs_vectors CASCADE;") 
-    cur.execute(CREATE_METADATA_TABLE)
-    cur.execute(CREATE_VECTORS_TABLE)
+    cur.execute("DROP TABLE IF EXISTS jobs_silver CASCADE;")
+    cur.execute("DROP TABLE IF EXISTS jobs_gold CASCADE;") 
+    cur.execute(CREATE_SILVER_TABLE)
+    cur.execute(CREATE_GOLD_TABLE)
     conn.commit()
-    print("Tables 'jobs_metadata' and 'jobs_vectors' created successfully.")
+    print("Tables 'jobs_silver' and 'jobs_gold' created successfully.")
     conn.close()
     
 except Exception as e:

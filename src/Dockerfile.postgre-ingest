@@ -7,6 +7,6 @@ COPY ../requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY import_embedding_from_s3.py .
+COPY sync_s3_to_postgres.py .
 
-CMD ["python", "import_embedding_from_s3.py"]
+CMD ["python", "sync_s3_to_postgres.py"]

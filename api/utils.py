@@ -35,7 +35,7 @@ def search_jobs_vector(embedding, top_k=TOP_K):
     
     sql = f"""
     SELECT job_id, embedding <-> %s AS distance
-    FROM jobs_vectors
+    FROM jobs_gold
     ORDER BY embedding <-> %s
     LIMIT %s;
     """

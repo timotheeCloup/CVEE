@@ -4,10 +4,11 @@ from dotenv import load_dotenv
 import requests
 import pyarrow as pa
 import pyarrow.parquet as pq
-from datetime import datetime
+from datetime import datetime, timedelta
 import s3fs
 
 load_dotenv()
+
 
 timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -20,7 +21,7 @@ FT_SCOPE = "o2dsoffre api_offresdemploiv2"
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
-AWS_S3_PATH=f'jobs_metadata_raw/jobs_metadata_raw_{timestamp_str}.parquet'
+AWS_S3_PATH=f'jobs_raw/jobs_raw_{timestamp_str}.parquet'
 
 #authentication
 def get_ft_token():
@@ -50,8 +51,8 @@ def get_ft_token():
 
 
 
-def fetch_jobs_data(token, mots_cles=None, department=None, commune=None, distance=None, domaine=None, sort=None, dureeHebdo=None, experience=None, experienceExigence=None, grandDomaine=None, minCreationDate=None, maxCreationDate=None, niveauFormation=None, permis=None, qualification=None, region=None, salaireMin=None, secteurActivite=None, tempsPlein=None, typeContrat=None, page_size=150, max_index=3000):
-    """Récupère toutes les offres d'emploi via pagination."""
+def fetch_jobs_data(token, page_size=150, max_index=3000, sort=1, niveauFormation="NV2", publieeDepuis=1, mots_cles=None, department=None, commune=None, distance=None, domaine=None, dureeHebdo=None, experience=None, experienceExigence=None, grandDomaine=None, minCreationDate=None, maxCreationDate=None, permis=None, qualification=None, region=None, salaireMin=None, secteurActivite=None, tempsPlein=None, typeContrat=None):
+    """Fetch job data from France Travail API with pagination"""
     jobs = []
     start_index = 0
     headers = {
@@ -74,14 +75,15 @@ def fetch_jobs_data(token, mots_cles=None, department=None, commune=None, distan
             "grandDomaine": grandDomaine,
             "minCreationDate": minCreationDate,
             "maxCreationDate": maxCreationDate,
-            "niveauFormation": niveauFormation,
+            "niveauFormation": niveauFormation, # NV2 : Bac+5 et plus ou équivalents
             "permis": permis,
             "qualification": qualification,
             "region": region,
             "salaireMin": salaireMin,
             "secteurActivite": secteurActivite,
             "tempsPlein": tempsPlein,
-            "typeContrat": typeContrat
+            "typeContrat": typeContrat,
+            "publieeDepuis": publieeDepuis # if x>1 --> doesn't work 
         }
 
         try:
@@ -101,7 +103,8 @@ def fetch_jobs_data(token, mots_cles=None, department=None, commune=None, distan
         except Exception as e:
             print(f"Error at index {start_index}: {e}")
             break
-
+        
+        
     print(f"Total jobs collected: {len(jobs)}")
     return jobs
 
@@ -117,13 +120,12 @@ def export_to_s3(jobs):
     df.to_parquet(s3_uri, engine="pyarrow", index=False, filesystem=fs)
     print(f"Export completed: {s3_uri}")
 
-# --- Main ---
+
 def main():
     token = get_ft_token()
     if not token:
         return
-    jobs = fetch_jobs_data(token, mots_cles="data")
-    print(f"Fetched {len(jobs)} jobs.")
+    jobs = fetch_jobs_data(token)
     export_to_s3(jobs)
 
 if __name__ == "__main__":

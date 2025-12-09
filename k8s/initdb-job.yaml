@@ -8,7 +8,27 @@ spec:
     spec:
       containers:
         - name: init-db
-          image: init-db:latest   # doit correspondre à l'image chargée
+          image: docker-init-db:latest   # ton image rebuild
           imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: "postgres"  # nom du service Kubernetes PostgreSQL
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: pg-secret
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: pg-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pg-secret
+                  key: POSTGRES_PASSWORD
       restartPolicy: Never
   backoffLimit: 1
