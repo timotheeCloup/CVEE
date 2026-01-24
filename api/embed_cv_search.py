@@ -4,8 +4,9 @@ from transformers import pipeline
 import re
 
 #384 dimensional embedding model
-model = SentenceTransformer("BAAI/bge-small-en")
-translator = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
+device="cpu"
+model = SentenceTransformer("BAAI/bge-small-en", device=device)
+translator = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en", device=device)
 
 def clean_extracted_text(text):
     """

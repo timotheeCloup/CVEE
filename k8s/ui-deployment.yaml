@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: cvee-ui
-          image: docker-cvee-ui:latest
-          imagePullPolicy: IfNotPresent  
+          image: cvee-ui:latest
+          imagePullPolicy: IfNotPresent   #Always
           ports:
             - containerPort: 8501

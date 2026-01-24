@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: cvee-api
-          image: cvee-api:latest   # À modifier juste après
-          imagePullPolicy: IfNotPresent
+          image: cvee-api:latest
+          imagePullPolicy: IfNotPresent  #change to Always if rebuilding image
           ports:
             - containerPort: 8000
           env:
