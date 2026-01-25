@@ -41,7 +41,10 @@ def embed_text(text):
 def embed_cv_and_search(text):
     """
     Generates the embedding for the CV and returns the top jobs from PostgreSQL.
+    Also includes matching terms for each job (in English for consistency).
     """
-    embedding = embed_text(text)
-    top_jobs = search_jobs_vector(embedding)
+    translated_text = translate_fr_to_en(text)
+    embedding = model.encode(translated_text).tolist()
+    # Pass the TRANSLATED text for consistent English term matching
+    top_jobs = search_jobs_vector(embedding, cv_text=translated_text)
     return top_jobs

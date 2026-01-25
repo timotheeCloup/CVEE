@@ -9,4 +9,5 @@ sentence-transformers>=2.2.2
 python-multipart
 transformers
 sentencepiece
+scikit-learn>=1.0.0
 
