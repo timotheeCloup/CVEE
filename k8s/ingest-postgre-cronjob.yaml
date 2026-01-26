@@ -12,7 +12,7 @@ spec:
           containers:
             - name: ingest-db
               image: ingest-db:latest
-              imagePullPolicy: IfNotPresent #Always
+              imagePullPolicy: Always #IfNotPresent 
               env:
                 - name: DB_HOST
                   value: postgres

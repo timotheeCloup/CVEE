@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS jobs_silver (
 
     intitule TEXT,
     description TEXT,
+    vector_text_input TEXT,
     dateCreation TEXT,
     dateActualisation TEXT,
 

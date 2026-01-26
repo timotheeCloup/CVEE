@@ -16,7 +16,7 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
-TOP_K = 21
+TOP_K = 20
 
 def extract_text_from_pdf(file_bytes):
     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
@@ -93,7 +93,7 @@ def search_jobs_vector(embedding, cv_text="", top_k=TOP_K):
         js.lieuTravail->>'libelle' AS lieu,
         js.typeContratLibelle,
         js.dateCreation,
-        js.description
+        js.vector_text_input
     FROM jobs_gold jg
     JOIN jobs_silver js ON jg.job_id = js.job_id
     ORDER BY jg.embedding <-> %s
