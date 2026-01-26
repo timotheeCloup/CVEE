@@ -1,6 +1,5 @@
 import os
 import io
-import re
 import PyPDF2
 import psycopg2
 from dotenv import load_dotenv

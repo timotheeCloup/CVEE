@@ -1,19 +1,39 @@
 from sentence_transformers import SentenceTransformer
 from utils import search_jobs_vector
-from transformers import pipeline
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 import re
+import os
+import json
 
-#384 dimensional embedding model
 device="cpu"
+#384 dimensional embedding model
 model = SentenceTransformer("BAAI/bge-small-en", device=device)
-translator = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en", device=device)
+tokenizer = AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-fr-en")
+translator_model = AutoModelForSeq2SeqLM.from_pretrained("Helsinki-NLP/opus-mt-fr-en")
+
+def load_french_stopwords():
+    path = os.path.join(os.path.dirname(__file__), 'stopwords.json')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return set(data.get('fr', []))
+    except Exception:
+        return set()
+
+
+FRENCH_STOPWORDS = load_french_stopwords()
 
 def clean_extracted_text(text):
     """
-    Clean up text (redundant spaces etc.)
+    Clean up text (remove stopwords, redundant spaces et.)
     """
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+    text = re.sub(r'\s+', ' ', text).lower()
+    text = re.sub(r'[^\w\s]', ' ', text)
+    
+    words = text.split()
+    words = [w for w in words if w not in FRENCH_STOPWORDS]
+    
+    return " ".join(words).strip()
 
 def translate_fr_to_en(text, chunk_size=400):
     """
@@ -26,7 +46,9 @@ def translate_fr_to_en(text, chunk_size=400):
     translated_text = ""
     for chunk in chunks:
         if chunk.strip():
-            translation = translator(chunk, truncation=True)[0]['translation_text']
+            inputs = tokenizer(chunk, return_tensors="pt", truncation=True, max_length=512)
+            outputs = translator_model.generate(**inputs)
+            translation = tokenizer.decode(outputs[0], skip_special_tokens=True)
             translated_text += translation + " "
             
     return translated_text.strip()

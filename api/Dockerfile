@@ -6,8 +6,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 ENV HF_HOME=/app/models_cache
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en')" && \
-    python -c "from transformers import pipeline; pipeline('translation', model='Helsinki-NLP/opus-mt-fr-en')"
+    python -c "from transformers import AutoModelForSeq2SeqLM, AutoTokenizer; AutoModelForSeq2SeqLM.from_pretrained('Helsinki-NLP/opus-mt-fr-en'); AutoTokenizer.from_pretrained('Helsinki-NLP/opus-mt-fr-en')"
 
+    
 COPY . .
 
 EXPOSE 8000
