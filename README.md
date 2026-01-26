@@ -2,6 +2,16 @@
 **CVEE** is an AI-powered job matching system that leverages embeddings to find the most relevant job opportunities based on uploaded CVs. It integrates data from the France Travail API, processes job descriptions using sentence transformers, and stores embeddings in a PostgreSQL database with pgvector for efficient similarity searches.
 
 ---
+  
+<!-- ![Data pipelines architecture](./assets/CVEE.drawio.svg) -->
+<p align="center">
+  <img src="./assets/demo.gif" alt="demo">
+  <br>
+  <b>End-to-end CV parsing and real-time vector matching</b>
+</p>
+
+---
+
 
 ## ✨ Features
 * **Job Data Ingestion**: Fetches job listings from the France Travail API and stores them in a structured format.
@@ -32,7 +42,7 @@ The system is built on a modular microservices architecture:
 <p align="center">
   <img src="./assets/CVEE.drawio.svg" alt="Data pipelines architecture">
   <br>
-  <b>Figure 1: Data Pipeline and System Architecture</b>
+  <b>Data Pipeline and System Architecture</b>
 </p>
 
 ---
@@ -91,3 +101,4 @@ The system is built on a modular microservices architecture:
 ## 🤝 Contributing
 
 Contributions are welcome! Please open issues or submit pull requests to help improve the portability and features of CVEE.
+
