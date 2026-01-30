@@ -53,12 +53,6 @@ def translate_fr_to_en(text, chunk_size=400):
             
     return translated_text.strip()
 
-def embed_text(text):
-    """
-    Generates the embedding for the given text
-    """
-    text= translate_fr_to_en(text)
-    return model.encode(text).tolist()
 
 def embed_cv_and_search(text):
     """
