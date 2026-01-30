@@ -8,6 +8,7 @@ import numpy as np
 from dotenv import load_dotenv
 
 load_dotenv()
+DAYS_BEFORE_PURGE = 40
 
 DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
@@ -55,6 +56,13 @@ def get_latest_batch_parquet_files(bucket, prefix):
 def read_parquet_from_s3(bucket, key):
     obj = s3_client.get_object(Bucket=bucket, Key=key)
     return pd.read_parquet(io.BytesIO(obj['Body'].read()))
+
+def delete_old_records(cursor, days=DAYS_BEFORE_PURGE):
+    """Delete old records from jobs_silver table"""
+    sql = "DELETE FROM jobs_silver WHERE ingestion_date < CURRENT_DATE - INTERVAL '%s days';"
+    cursor.execute(sql, (days,))
+    print(f"{cursor.rowcount} old offers deleted.")
+
 
 silver_keys = get_latest_batch_parquet_files(AWS_S3_BUCKET_NAME, PREFIX_SILVER)
 gold_keys = get_latest_batch_parquet_files(AWS_S3_BUCKET_NAME, PREFIX_GOLD)
@@ -141,6 +149,9 @@ else:
 
         conn.commit()
         print(f"File {key} inserted successfully.")
+        
+delete_old_records(cur, days=30)
+conn.commit()
 
 conn.close()
 print("End of import")
