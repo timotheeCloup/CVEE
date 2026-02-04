@@ -8,15 +8,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 load_dotenv()
 
-load_dotenv()
-
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT"))
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
-TOP_K = 20
+TOP_K = 100
 
 def extract_text_from_pdf(file_bytes):
     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
@@ -29,9 +27,11 @@ def get_top_matching_terms(cv_text, job_text, top_n=10):
     """
     Extract top N terms that matched between CV and job offer using TF-IDF similarity
     """
+    
     # Clean and tokenize
-    cv_text = cv_text.lower()
-    job_text = job_text.lower()
+    cv_text = str(cv_text).lower()
+    job_text = str(job_text).lower()
+    
     
     # Create TF-IDF vectorizer
     vectorizer = TfidfVectorizer(
@@ -69,7 +69,8 @@ def get_top_matching_terms(cv_text, job_text, top_n=10):
         top_terms = [item["term"] for item in matching_scores[:top_n]]
         
         return top_terms
-    except:
+    except Exception as e:
+        print(f"Error in get_top_matching_terms: {str(e)}")
         return []
 
 def search_jobs_vector(embedding, cv_text="", top_k=TOP_K):
@@ -109,7 +110,7 @@ def search_jobs_vector(embedding, cv_text="", top_k=TOP_K):
     for r in results:
         job_description = r[7] if r[7] else ""
         matching_terms = get_top_matching_terms(cv_text, job_description, top_n=10)
-        
+            
         processed_results.append({
             "job_id": r[0],
             "similarity_score": round(r[1], 4),

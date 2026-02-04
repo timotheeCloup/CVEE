@@ -2,8 +2,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from utils import extract_text_from_pdf
 from embed_cv_search import embed_cv_and_search
 
-
-
 app = FastAPI(title="CV-Embedding Engine API")
 
 @app.post("/embed-cv")
