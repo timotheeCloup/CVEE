@@ -1,12 +1,14 @@
 import streamlit as st
 import requests
+import os
 from datetime import datetime
 
 st.set_page_config(page_title="CV Match Engine", layout="centered")
 
-# Initialiser la clé de session pour tracker l'upload
-if "last_upload_id" not in st.session_state:
-    st.session_state.last_upload_id = None
+# Get API URL from environment variable or default
+API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
+
+st.session_state.api_url = API_URL
 
 st.markdown("""
     <style>
@@ -69,7 +71,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-API_URL = "http://cvee-api:8000/embed-cv"
+
+
+API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
+
+# Initialiser la clé de session pour tracker l'upload
+if "last_upload_id" not in st.session_state:
+    st.session_state.last_upload_id = None
 
 # Hide results to avoid multiple calls
 @st.cache_data(show_spinner=False)

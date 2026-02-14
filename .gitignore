@@ -28,6 +28,7 @@ build/
 .env
 .env.local
 .env.*.local
+.secrets.json
 
 # Logs
 logs/
