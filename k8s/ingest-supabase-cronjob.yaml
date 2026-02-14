@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ingest-supabase
+  namespace: cvee
+spec:
+  schedule: "30 23 * * *" #daily at 23:30
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: ingest-supabase
+              image: ingest-supabase:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: SB_HOST
+                  value: "aws-1-eu-west-3.pooler.supabase.com"
+                - name: SB_PORT
+                  value: "5432"
+                - name: SB_USER
+                  value: "postgres.zjzzcjoxarzhcujizcnn"
+                - name: SB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: supabase-secret
+                      key: SB_PASSWORD
+                - name: SB_NAME
+                  value: "postgres"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-secret
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-secret
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_S3_BUCKET_NAME
+                  value: "cvee-bucket-eu-north-1"
+          restartPolicy: OnFailure

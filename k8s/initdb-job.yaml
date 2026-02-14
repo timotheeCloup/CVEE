@@ -8,7 +8,7 @@ spec:
     spec:
       containers:
         - name: init-db
-          image: init-db:latest   # ton image rebuild
+          image: init-db:latest   
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST

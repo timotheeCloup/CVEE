@@ -49,5 +49,6 @@ docker/
 k8s/secret-aws.yaml
 k8s/secret-postgres.yaml
 k8s/secret-ft.yaml
+k8s/secret-supabase.yaml
 src/import_embedding_from_s3.py
 src/collect_and_push_to_s3.py
