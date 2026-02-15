@@ -1,15 +1,15 @@
 from sentence_transformers import SentenceTransformer
 from utils import search_jobs_vector
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from google.cloud import translate_v2
 import re
 import os
 import json
+import time
 
 device="cpu"
 #384 dimensional embedding model
 model = SentenceTransformer("BAAI/bge-small-en", device=device)
-tokenizer = AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-fr-en")
-translator_model = AutoModelForSeq2SeqLM.from_pretrained("Helsinki-NLP/opus-mt-fr-en")
+translate_client = translate_v2.Client()
 
 def load_french_stopwords():
     path = os.path.join(os.path.dirname(__file__), 'stopwords.json')
@@ -35,23 +35,35 @@ def clean_extracted_text(text):
     
     return " ".join(words).strip()
 
-def translate_fr_to_en(text, chunk_size=400):
+def translate_fr_to_en(text, chunk_size=5000):
     """
-    Split the text into parts to avoid overloading the translator
+    Translate French text to English using Google Cloud Translation API.
+    Much faster and lighter than Hugging Face models.
     """
     text = clean_extracted_text(text)
     
+    if not text.strip():
+        return ""
+    
+    # Split into chunks for API limits (Google allows up to 100k chars per request)
     words = text.split(' ')
     chunks = [" ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
-    translated_text = ""
+    
+    translated_chunks = []
     for chunk in chunks:
         if chunk.strip():
-            inputs = tokenizer(chunk, return_tensors="pt", truncation=True, max_length=512)
-            outputs = translator_model.generate(**inputs)
-            translation = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            translated_text += translation + " "
-            
-    return translated_text.strip()
+            try:
+                result = translate_client.translate(
+                    chunk,
+                    target_language='en'
+                )
+                translated_chunks.append(result['translatedText'])
+            except Exception as e:
+                print(f"⚠️ Translation error: {str(e)}", flush=True)
+                # Fallback: return original text if translation fails
+                translated_chunks.append(chunk)
+    
+    return " ".join(translated_chunks).strip()
 
 
 def embed_cv_and_search(text):
@@ -59,8 +71,20 @@ def embed_cv_and_search(text):
     Generates the embedding for the CV and returns the top jobs from PostgreSQL.
     Also includes matching terms for each job (in English for consistency).
     """
+    t0 = time.time()
+    
     translated_text = translate_fr_to_en(text)
+    t1 = time.time()
+    print(f"Translation: {t1 - t0:.2f}s", flush=True)
+    
     embedding = model.encode(translated_text).tolist()
+    t2 = time.time()
+    print(f"Embedding: {t2 - t1:.2f}s", flush=True)
+    
     # Pass the TRANSLATED text for consistent English term matching
     top_jobs = search_jobs_vector(embedding, cv_text=translated_text)
+    t3 = time.time()
+    print(f"BD + TF-IDF Search: {t3 - t2:.2f}s", flush=True)
+    print(f"TOTAL: {t3 - t0:.2f}s", flush=True)
+    
     return top_jobs

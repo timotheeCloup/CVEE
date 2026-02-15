@@ -10,3 +10,4 @@ python-multipart
 transformers>=4.36 
 sentencepiece
 scikit-learn>=1.0.0
+google-cloud-translate>=3.11.0

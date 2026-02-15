@@ -24,7 +24,13 @@ st.markdown("""
         margin-top: -15px;
         margin-bottom: 15px;
     }
-    .stMetric { background-color: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 10px; }
+    .stMetric { 
+    background-color: var(--secondary-background-color);
+    color: var(--text-color);
+    border: 1px solid #eee;
+    padding: 10px;
+    border-radius: 10px;
+    }
     
     
     /* Analyse button */ 
@@ -79,8 +85,9 @@ API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
 if "last_upload_id" not in st.session_state:
     st.session_state.last_upload_id = None
 
-# Hide results to avoid multiple calls
-@st.cache_data(show_spinner=False)
+if "cached_job_results" not in st.session_state:
+    st.session_state.cached_job_results = None
+
 def fetch_job_results(file_bytes, file_name):
     """Gets job results from the API given the CV file bytes."""
     response = requests.post(API_URL, files={"file": ("cv.pdf", file_bytes)})
@@ -100,6 +107,7 @@ if uploaded_file is not None:
     # If a new file is uploaded, reset previous analysis states
     if current_upload_id != st.session_state.last_upload_id:
         st.session_state.last_upload_id = current_upload_id
+        st.session_state.cached_job_results = None  # Clear cache for new upload
         # Reset all analysis states
         for key in list(st.session_state.keys()):
             if key.startswith("analysis_"):
@@ -108,7 +116,13 @@ if uploaded_file is not None:
     # Get the results (cached after the first call)
     with st.spinner("Analyzing your profile..."):
         file_bytes = uploaded_file.getvalue()
-        top_jobs = fetch_job_results(file_bytes, uploaded_file.name)
+        
+        # Check if results are already cached in session state
+        if st.session_state.cached_job_results is None:
+            top_jobs = fetch_job_results(file_bytes, uploaded_file.name)
+            st.session_state.cached_job_results = top_jobs
+        else:
+            top_jobs = st.session_state.cached_job_results
     
     if top_jobs:
         st.success(f"🔥 Found {len(top_jobs)} matching jobs!")
