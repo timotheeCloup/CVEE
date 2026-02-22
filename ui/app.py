@@ -74,6 +74,22 @@ st.markdown("""
         font-size: 14px;
         backdrop-filter: blur(10px);
     }
+    .footer {
+        text-align: center;
+        color: #999;
+        font-size: 12px;
+        padding-top: 30px;
+        margin-top: 40px;
+    }
+    .footer-link {
+        color: #999;
+        text-decoration: none;
+        margin: 0 8px;
+        transition: color 0.2s ease;
+    }
+    .footer-link:hover {
+        color: #667eea;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -177,3 +193,11 @@ if uploaded_file is not None:
                 c3.markdown(f"📅 {clean_date}")
     else:
         st.error("API unreachable. Please check your connection.")
+
+st.markdown("""
+    <div class="footer">
+        Made by Timothée Cloup-Martin<br>
+        <a href="https://github.com/timotheeCloup/CVEE" target="_blank" class="footer-link">GitHub</a> • 
+        <a href="https://timotheecloup.github.io/portfolio/" target="_blank" class="footer-link">Portfolio</a>
+    </div>
+""", unsafe_allow_html=True)

@@ -26,12 +26,16 @@ FRENCH_STOPWORDS = load_french_stopwords()
 def clean_extracted_text(text):
     """
     Clean up text (remove stopwords, redundant spaces et.)
+    Preserves useful punctuation: +, #, - (for C++, C#, full-stack, etc.)
     """
     text = re.sub(r'\s+', ' ', text).lower()
-    text = re.sub(r'[^\w\s]', ' ', text)
+    # Keep useful punctuation: +, #, -
+    text = re.sub(r'[^\w\s\+\#\-]', ' ', text)
+    # Clean up multiple spaces
+    text = re.sub(r'\s+', ' ', text)
     
     words = text.split()
-    words = [w for w in words if w not in FRENCH_STOPWORDS]
+    words = [w for w in words if w not in FRENCH_STOPWORDS and len(w) > 1]
     
     return " ".join(words).strip()
 
@@ -59,32 +63,45 @@ def translate_fr_to_en(text, chunk_size=5000):
                 )
                 translated_chunks.append(result['translatedText'])
             except Exception as e:
-                print(f"⚠️ Translation error: {str(e)}", flush=True)
+                print(f"Translation error: {str(e)}", flush=True)
                 # Fallback: return original text if translation fails
                 translated_chunks.append(chunk)
     
     return " ".join(translated_chunks).strip()
 
 
-def embed_cv_and_search(text):
+def embed_cv_and_search(text, t_api_start=None):
     """
     Generates the embedding for the CV and returns the top jobs from PostgreSQL.
     Also includes matching terms for each job (in English for consistency).
+    
+    Args:
+        text: CV text to process
+        t_api_start: Start time of API call (for accurate timing)
     """
+    if t_api_start is None:
+        t_api_start = time.time()
+    
     t0 = time.time()
     
     translated_text = translate_fr_to_en(text)
     t1 = time.time()
-    print(f"Translation: {t1 - t0:.2f}s", flush=True)
+    print(f"\n=== TIMING BREAKDOWN ===", flush=True)
+    print(f"0. API call to processing: {t0 - t_api_start:7.2f}s", flush=True)
+    print(f"1. Translation:            {t1 - t0:7.2f}s", flush=True)
+    print(f"   Text length:            {len(translated_text)} chars", flush=True)
     
     embedding = model.encode(translated_text).tolist()
     t2 = time.time()
-    print(f"Embedding: {t2 - t1:.2f}s", flush=True)
+    print(f"2. Embedding:              {t2 - t1:7.2f}s", flush=True)
+    print(f"   Embedding dim:          {len(embedding)}", flush=True)
     
     # Pass the TRANSLATED text for consistent English term matching
     top_jobs = search_jobs_vector(embedding, cv_text=translated_text)
     t3 = time.time()
-    print(f"BD + TF-IDF Search: {t3 - t2:.2f}s", flush=True)
-    print(f"TOTAL: {t3 - t0:.2f}s", flush=True)
+    print(f"3. DB Search + FTS:        {t3 - t2:7.2f}s", flush=True)
+    print(f"   Results found:          {len(top_jobs)} jobs", flush=True)
+    print(f"\n4. TOTAL TIME:             {t3 - t_api_start:7.2f}s", flush=True)
+    print(f"=" * 35, flush=True)
     
     return top_jobs
