@@ -112,9 +112,9 @@ def fetch_job_results(file_bytes, file_name):
     return None
 
 st.title("📄 CV Match Engine")
-st.markdown('<p class="sub-title">Find the job openings that truly match your profile based on semantic analysis.</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Trouvez les offres d\'emploi qui correspondent vraiment à votre profil</p>', unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("Upload your CV (PDF)", type=["pdf"], max_upload_size=5) 
+uploaded_file = st.file_uploader("Déposez votre CV (PDF)", type=["pdf"], max_upload_size=5) 
 
 if uploaded_file is not None:
     # Generate a unique ID for the current upload
@@ -130,7 +130,7 @@ if uploaded_file is not None:
                 del st.session_state[key]
     
     # Get the results (cached after the first call)
-    with st.spinner("Analyzing your profile..."):
+    with st.spinner("Analyse de votre profil..."):
         file_bytes = uploaded_file.getvalue()
         
         # Check if results are already cached in session state
@@ -141,7 +141,7 @@ if uploaded_file is not None:
             top_jobs = st.session_state.cached_job_results
     
     if top_jobs:
-        st.success(f"🔥 Found {len(top_jobs)} matching jobs!")
+        st.success(f"🔥 {len(top_jobs)} jobs trouvés !")
         
         for i, job in enumerate(top_jobs, start=1):
             raw_date = job.get('date_creation', '')
@@ -171,7 +171,7 @@ if uploaded_file is not None:
                         def toggle_analysis(job_id):
                             st.session_state[job_id] = not st.session_state.get(job_id, False)
                         
-                        st.button("✨ Analyse", key=f"btn_{job_key}", 
+                        st.button("✨ Analyser", key=f"btn_{job_key}", 
                                  on_click=toggle_analysis, args=(job_key,),
                                  use_container_width=True)
                 
@@ -182,7 +182,7 @@ if uploaded_file is not None:
                     
                     st.markdown(f"""
                         <div class="terms-bubble">
-                            <strong>🎯 Key matching terms:</strong><br><br>
+                            <strong>🎯 Mots-clés identifiés :</strong><br><br>
                             {terms_html}
                         </div>
                     """, unsafe_allow_html=True)

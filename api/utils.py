@@ -71,7 +71,7 @@ def extract_french_keywords_from_headline(headline):
 def linear_mapping(value, from_min, from_max, to_min, to_max):
     """Linearly map a value from one range to another"""
     if from_max - from_min == 0:
-        return to_min  # Avoid division by zero
+        return to_min 
     return to_min + (to_max - to_min) * (value - from_min) / (from_max - from_min)
 
 def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
@@ -252,7 +252,7 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
     for r in hybrid_results:
         processed_results.append({
             "job_id": r['job_id'],
-            "similarity_score": round(linear_mapping(r['combined_score'], 0.45, 0.7, 0.2, 0.8), 2),
+            "similarity_score": round(linear_mapping(r['combined_score'], 0.45, 0.7, 0.2, 0.95), 2),
             "embedding_score": round(r['embedding_score'], 4),
             "fts_score": round(r['fts_score'], 4),
             "combined_score": round(r['combined_score'], 4),

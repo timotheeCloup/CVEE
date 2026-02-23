@@ -1,9 +1,15 @@
-# CVEE: CV-Embedding Engine 🚀
-**CVEE** is an AI-powered job matching system that leverages embeddings to find the most relevant job opportunities based on uploaded CVs. It integrates data from the France Travail API, processes job descriptions using sentence transformers, and stores embeddings in a PostgreSQL database with pgvector for efficient similarity searches.
+# CVEE: CV-Embedding Engine
+
+Traditional job boards match you based on keywords. CVEE is fundamentally different—it analyzes your complete CV to understand who you really are, then finds the roles that truly align with your profile, skills, and experience in seconds using semantic search.
+
+**CVEE** is an AI-powered job matching system that combines semantic embeddings and full-text search to find the most relevant job opportunities based on uploaded CVs. It integrates data from the France Travail API, processes job descriptions using sentence transformers, and stores embeddings in a PostgreSQL database with pgvector for efficient hybrid similarity searches.
+
+Try it now: [CV Match Engine](https://cvee-ui-1081304882492.europe-west1.run.app/)
+
+[![API Health Check](https://github.com/timotheeCloup/CVEE/actions/workflows/ci.yaml/badge.svg)](https://github.com/timotheeCloup/CVEE/actions/workflows/ci.yaml)
 
 ---
-  
-<!-- ![Data pipelines architecture](./assets/CVEE.drawio.svg) -->
+
 <p align="center">
   <img src="./assets/demo.gif" alt="demo">
   <br>
@@ -12,93 +18,132 @@
 
 ---
 
+## Features
 
-## ✨ Features
-* **Job Data Ingestion**: Fetches job listings from the France Travail API and stores them in a structured format.
-* **Embedding Generation**: Uses the BAAI/bge-small-en model to create 384-dimensional embeddings for job descriptions and CVs.
-* **Vector Search**: Performs cosine similarity searches on embeddings to match CVs with jobs.
-* **Web Interface**: A Streamlit-based UI for uploading PDFs and viewing top matching jobs.
-* **Scalable Deployment**: Kubernetes manifests for containerized deployment with PostgreSQL, API, and UI services.
-* **Data Pipeline**: Automated workflows using CronJobs for data ingestion and synchronization.
-
----
-
-## 🏗️ Architecture
-
-The system is built on a modular microservices architecture:
-
-| Component | Technology | Description |
-| :--- | :--- | :--- |
-| **API** | FastAPI | Handles CV text extraction, embedding generation, and search queries. |
-| **UI** | Streamlit | Frontend for user interaction and result display. |
-| **Database** | PostgreSQL + pgvector | Stores structured job data and high-dimensional vectors. |
-| **Processing** | Jupyter/Databricks | Notebooks for Silver/Gold data layers (ingestion & embedding). |
-| **Storage** | AWS S3 | Remote storage for raw and processed datasets. |
-| **Orchestration** | Kubernetes | Manages container lifecycles and service scaling. |
+- **Intelligent Job Matching** - Combines semantic embeddings and full-text search for accurate results
+- **Real-Time Search** - Upload your CV and get matched jobs in seconds
+- **Automated Data Pipeline** - Daily ingestion from France Travail API with PySpark transformation
+- **Vector Database** - Supabase PostgreSQL with pgvector for efficient similarity queries on 384-dimensional embeddings
+- **Professional UI** - Clean Streamlit interface with direct job posting links
+- **Serverless Scalability** - Google Cloud Run deployment with auto-scaling
 
 ---
-  
-<!-- ![Data pipelines architecture](./assets/CVEE.drawio.svg) -->
+
+## Architecture
+
+The system follows a modern data pipeline architecture with clear separation of concerns:
+
 <p align="center">
   <img src="./assets/CVEE.drawio.svg" alt="Data pipelines architecture">
   <br>
   <b>Data Pipeline and System Architecture</b>
 </p>
 
----
+### System Components
 
-## ⚙️ Installation
+| Component | Technology | Purpose |
+| :--- | :--- | :--- |
+| **API Service** | FastAPI + Cloud Run | Handles CV parsing, embedding generation, and hybrid search queries |
+| **Web UI** | Streamlit + Cloud Run | User-friendly interface for CV upload and results visualization |
+| **Vector Database** | Supabase (PostgreSQL + pgvector) | Stores structured job data and 384-dimensional embeddings |
+| **Data Processing** | PySpark + Databricks | ETL pipelines for data transformation and embedding generation |
+| **Cloud Storage** | AWS S3 | Raw job data, intermediate processed datasets, and backups |
+| **Orchestration** | Google Cloud Scheduler + Cloud Functions | Automated daily data sync and API ingestion |
 
-### Prerequisites
-* Python 3.11+
-* Docker
-* Kubernetes cluster (e.g., Minikube for local testing)
-* AWS account with S3 bucket
-* Databricks account
-* France Travail API credentials
+### Data Flow Pipeline
 
-### Local Setup
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/timotheeCloup/CVEE.git
-    cd CVEE
-    ```
+1. **API Ingestion** (Cloud Function) - France Travail API → AWS S3 (Bronze layer)
+2. **Data Transformation** (Databricks) - Bronze → Silver (cleaning, deduplication, French→English translation)
+3. **Embedding Generation** (Databricks) - Silver → Gold (BAAI/bge-small-en model)
+4. **Database Sync** (Cloud Function) - AWS S3 (Gold) → Supabase PostgreSQL
+5. **User Query** - CV upload → FastAPI → Hybrid search → Streamlit UI
 
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+### Hybrid Search Algorithm
 
-3.  **Environment Variables:**
-    Set up environment variables in a `.env` file (see example in `sync_s3_to_postgres.py`).
+The matching combines two complementary approaches:
 
-
-### Kubernetes Deployment
-1.  **Apply secrets and namespace:**
-    ```bash
-    kubectl apply -f k8s/namespace.yaml
-    kubectl apply -f k8s/secrets.yaml
-    ```
-
-2.  **Deploy services:**
-    ```bash
-    kubectl apply -f k8s/
-    ```
-
-3.  **Access the UI:**
-    Open `http://<node-ip>:30081` in your browser.
+- **Semantic Matching** - Cosine similarity between CV and job embeddings using [BAAI/bge-small-en](https://huggingface.co/BAAI/bge-small-en)
+- **Full-Text Search** - PostgreSQL ts_rank on job descriptions with weighted tsvector levels
+- **Result Ranking** - Combined score balances both signals for optimal relevance
 
 ---
 
-## 🚀 Usage
+## Technology Stack
 
-1.  **Upload** a PDF CV via the Streamlit UI.
-2.  The **API** extracts text, generates embeddings, and queries the database for top matches.
-3.  **View results** with direct links to job postings on France Travail.
+### Backend & API
+- **FastAPI** - Modern, async web framework for the search API
+- **Python 3.11** - Primary language for all services
+- **PyPDF2** - CV text extraction from PDF files
+- **Sentence Transformers** - BAAI/bge-small-en for embedding generation (384 dims)
+- **scikit-learn** - Cosine similarity calculations
+
+### Data & Storage
+- **Supabase (PostgreSQL 16)** - Vector database with pgvector extension
+- **AWS S3** - Object storage for Bronze/Silver/Gold datasets
+- **Parquet** - Columnar format for efficient data processing
+- **pandas + PyArrow** - Data manipulation and format conversion
+
+### Data Processing & ML
+- **PySpark** - Distributed computing for large-scale data transformation
+- **Databricks** - Managed platform for notebook execution and job orchestration
+- **Google Cloud Translate API** - French → English text translation
+- **Hugging Face** - Pre-trained sentence transformer models
+
+### Deployment & Cloud Infrastructure
+- **Google Cloud Run** - Serverless container hosting (API & UI)
+- **Google Cloud Functions** - Serverless compute for ETL pipelines
+- **Google Cloud Scheduler** - Cron-based job orchestration
+- **Docker** - Containerization of all services
+
+### Frontend
+- **Streamlit** - Lightweight framework for data-driven web app
+- **Requests** - HTTP client for API communication
+
+### DevOps & CI/CD
+- **GitHub Actions** - Automated API health checks on every push
+- **Docker** - Container images for Cloud Run deployment
 
 ---
 
-## 🤝 Contributing
+## Project Structure
 
-Contributions are welcome! Please open issues or submit pull requests to help improve the portability and features of CVEE.
+```
+CVEE/
+├── api/                                    # FastAPI Service
+│   ├── app.py                             # Main API endpoints (/health, /embed-cv)
+│   ├── embed_cv_search.py                 # Hybrid search logic
+│   ├── utils.py                           # Database queries, PDF extraction
+│   ├── stopwords.json                     # French stopwords for FTS
+│   ├── Dockerfile                         # Cloud Run image
+│   └── requirements.txt
+│
+├── ui/                                     # Streamlit Web Interface
+│   ├── app.py                             # Streamlit UI application
+│   ├── Dockerfile                         # Cloud Run image
+│   └── requirements.txt
+│
+├── src/
+│   ├── cf-api-to-s3/                      # Cloud Function: API → S3
+│   │   ├── main.py                        # Cloud Function entry point
+│   │   ├── api_to_s3_loader.py           # France Travail API fetcher
+│   │   └── requirements.txt
+│   │
+│   ├── cf-ingest-db/                      # Cloud Function: S3 → Supabase
+│   │   ├── main.py                        # Cloud Function entry point
+│   │   ├── sync_s3_to_supabase.py        # S3 to PostgreSQL sync logic
+│   │   └── requirements.txt
+│   │
+│   ├── jobs_ingestion_silver.ipynb        # Databricks: Bronze → Silver
+│   ├── jobs_embeddings_gold.ipynb         # Databricks: Silver → Gold (embeddings)
+│   └── jobs_export.ipynb                  # Databricks: Export to S3
+│
+└── .github/
+    └── workflows/ci.yaml                  # GitHub Actions health checks
+```
 
+---
+
+
+## License
+
+MIT License - See [LICENSE](LICENSE) file for details.
