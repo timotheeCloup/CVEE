@@ -1,7 +1,9 @@
 import functions_framework
 import json
+import asyncio
 from google.cloud import secretmanager
 from sync_s3_to_supabase import main as ingest_db_main
+from cleanup_dead_jobs import cleanup_dead_jobs_main
 
 PROJECT_ID = "cvee-20260208"
 
@@ -37,8 +39,12 @@ def get_all_secrets():
 @functions_framework.http
 def ingest_db_cf(request):
     """
-    HTTP Cloud Function to run S3 to Supabase ingestion job.
-    Triggered by Cloud Scheduler.
+    HTTP Cloud Function to run S3 to Supabase ingestion job + cleanup dead jobs.
+    Triggered by Cloud Scheduler once daily.
+    
+    Steps:
+    1. Ingest new job offers from S3 to Supabase
+    2. Verify all existing jobs in database and delete dead ones (404s)
     """
     try:
         print("Starting ingest-db Cloud Function")
@@ -46,7 +52,8 @@ def ingest_db_cf(request):
         # Get secrets from GCP Secret Manager
         secrets = get_all_secrets()
         
-        # Run the main job with secrets
+        # Step 1: Ingest new jobs from S3
+        print("\n### STEP 1: INGESTION ###")
         ingest_db_main(
             aws_access_key_id=secrets["AWS_ACCESS_KEY_ID"],
             aws_secret_access_key=secrets["AWS_SECRET_ACCESS_KEY"],
@@ -58,10 +65,17 @@ def ingest_db_cf(request):
             sb_name=secrets["SB_NAME"],
         )
         
+        # Step 2: Cleanup dead jobs
+        print("\n### STEP 2: CLEANUP ###")
+        cleanup_result = asyncio.run(cleanup_dead_jobs_main(secrets))
+        
         print("ingest-db Cloud Function completed successfully")
-        return "OK", 200
+        return {
+            "status": "success",
+            "cleanup_result": cleanup_result
+        }, 200
     
     except Exception as e:
         error_msg = f"Error in ingest-db Cloud Function: {str(e)}"
         print(error_msg)
-        return error_msg, 500
+        return {"status": "error", "message": error_msg}, 500

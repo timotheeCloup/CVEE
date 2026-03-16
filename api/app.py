@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 import os
 import time
 from utils import extract_text_from_pdf
-from embed_cv_search import embed_cv_and_search
+from embed_cv_search import embed_cv_and_search_async
 
 app = FastAPI(title="CV-Embedding Engine API")
 
@@ -26,7 +26,7 @@ async def embed_cv(file: UploadFile = File(...)):
     t_extract = time.time()
     print(f"PDF extract: {t_extract - t_read:.2f}s", flush=True)
     
-    top_jobs = embed_cv_and_search(text, t_api_start=t_start)
+    top_jobs = await embed_cv_and_search_async(text, t_api_start=t_start)
     t_end = time.time()
     print(f"Total time: {t_end - t_start:.2f}s\n", flush=True)
     

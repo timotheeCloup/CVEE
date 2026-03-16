@@ -2,11 +2,30 @@ import streamlit as st
 import requests
 import os
 from datetime import datetime
+import threading
 
 st.set_page_config(page_title="CV Match Engine", layout="centered")
 
 # Get API URL from environment variable or default
 API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
+
+# Warmup API on app startup (non-blocking)
+@st.cache_resource
+def warmup_api():
+    """Ping the API health endpoint to trigger container startup"""
+    api_base_url = API_URL.rsplit('/embed-cv', 1)[0]  # Remove /embed-cv
+    health_endpoint = f"{api_base_url}/health"
+    
+    def ping_api():
+        try:
+            requests.get(health_endpoint, timeout=2)
+        except Exception:
+            pass  # Silently ignore errors during warmup
+    
+    thread = threading.Thread(target=ping_api, daemon=True)
+    thread.start()
+
+warmup_api()
 
 st.session_state.api_url = API_URL
 

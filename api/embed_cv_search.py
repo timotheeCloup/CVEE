@@ -4,6 +4,8 @@ from google.cloud import translate_v2
 import os
 import json
 import time
+import asyncio
+import aiohttp
 
 device = "cpu"
 # 384 dimensional embedding model
@@ -55,6 +57,87 @@ def translate_text(text):
     except Exception as e:
         print(f"Translation error: {str(e)}", flush=True)
         return text
+
+
+async def verify_job_link(job_id: str, timeout: float = 0.2) -> dict:
+    """
+    Verify if a job offer link is still available on France Travail.
+    Uses aggressive timeout (100ms) to fail fast on dead links.
+    France Travail returns 404 for deleted/expired offers.
+    
+    Args:
+        job_id: Job ID from database
+        timeout: Timeout in seconds (default 100ms)
+    
+    Returns:
+        Dict with job_id and alive status
+    """
+    job_url = f"https://candidat.francetravail.fr/offres/recherche/detail/{job_id}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.head(job_url, timeout=aiohttp.ClientTimeout(total=timeout), allow_redirects=True) as resp:
+                # 200 = alive, 404 = dead, timeouts = assume alive (prudent)
+                is_alive = resp.status == 200
+                return {"job_id": job_id, "alive": is_alive, "status": resp.status}
+    except asyncio.TimeoutError:
+        # Timeout = assume alive (prudent, avoid false positives)
+        return {"job_id": job_id, "alive": True, "status": "timeout"}
+    except Exception as e:
+        # Any other error = assume alive (prudent)
+        return {"job_id": job_id, "alive": True, "status": "error"}
+
+
+async def filter_dead_jobs(top_jobs: list, max_concurrent: int = 10) -> list:
+    """
+    Filter out dead job offers using lazy checking.
+    Performs parallel HEAD requests with aggressive timeout.
+    
+    Args:
+        top_jobs: List of job offers from search
+        max_concurrent: Max concurrent requests (default 10)
+    
+    Returns:
+        List of verified alive job offers
+    """
+    if not top_jobs:
+        return top_jobs
+    
+    t_start = time.time()
+    
+    # Use semaphore to limit concurrent requests
+    semaphore = asyncio.Semaphore(max_concurrent)
+    
+    async def check_with_semaphore(job):
+        async with semaphore:
+            return await verify_job_link(job['job_id'])
+    
+    # Check all jobs in parallel
+    verification_results = await asyncio.gather(
+        *[check_with_semaphore(job) for job in top_jobs],
+        return_exceptions=True
+    )
+    
+    # Build set of alive job IDs
+    alive_ids = set()
+    dead_count = 0
+    
+    for result in verification_results:
+        if isinstance(result, Exception):
+            # On exception, assume alive (prudent)
+            continue
+        if result.get('alive', True):
+            alive_ids.add(result['job_id'])
+        else:
+            dead_count += 1
+    
+    # Filter jobs
+    filtered_jobs = [job for job in top_jobs if job['job_id'] in alive_ids]
+    
+    t_end = time.time()
+    print(f"Link verification: {t_end - t_start:.3f}s | Checked: {len(top_jobs)} | Dead: {dead_count} | Alive: {len(filtered_jobs)}", flush=True)
+    
+    return filtered_jobs
 
 
 def embed_cv_and_search(cv_text, t_api_start=None):
@@ -109,3 +192,24 @@ def embed_cv_and_search(cv_text, t_api_start=None):
     print(f"=" * 35, flush=True)
     
     return top_jobs
+
+
+async def embed_cv_and_search_async(cv_text, t_api_start=None):
+    """
+    Async wrapper for embed_cv_and_search with lazy link verification.
+    Performs blocking search then async link verification to remove dead offers.
+    
+    Args:
+        cv_text: Raw CV text (French)
+        t_api_start: API call start time
+    
+    Returns:
+        List of verified alive job offers
+    """
+    # Perform synchronous search (blocking, but necessary)
+    top_jobs = embed_cv_and_search(cv_text, t_api_start)
+    
+    # Perform async link verification (non-blocking, removes 404 offers)
+    verified_jobs = await filter_dead_jobs(top_jobs)
+    
+    return verified_jobs

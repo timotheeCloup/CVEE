@@ -5,7 +5,7 @@ import boto3
 import pandas as pd
 import numpy as np
 
-DAYS_BEFORE_PURGE = 40
+DAYS_BEFORE_PURGE = 30
 
 
 def get_s3_client(aws_access_key_id, aws_secret_access_key):
