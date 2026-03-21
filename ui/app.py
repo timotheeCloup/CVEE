@@ -3,29 +3,39 @@ import requests
 import os
 from datetime import datetime
 import threading
+import time
 
 st.set_page_config(page_title="CV Match Engine", layout="centered")
 
 # Get API URL from environment variable or default
 API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
 
-# Warmup API on app startup (non-blocking)
-@st.cache_resource
-def warmup_api():
-    """Ping the API health endpoint to trigger container startup"""
-    api_base_url = API_URL.rsplit('/embed-cv', 1)[0]  # Remove /embed-cv
+# Detect cold start on initial load only
+if "api_cold_start_checked" not in st.session_state:
+    st.session_state.api_cold_start_checked = True
+    api_base_url = API_URL.rsplit('/embed-cv', 1)[0]
     health_endpoint = f"{api_base_url}/health"
     
-    def ping_api():
-        try:
-            requests.get(health_endpoint, timeout=2)
-        except Exception:
-            pass  # Silently ignore errors during warmup
+    try:
+        requests.get(health_endpoint, timeout=2)
+        st.session_state.api_cold_start = False
+    except Exception:
+        # Timeout or error = cold start detected
+        st.session_state.api_cold_start = True
     
-    thread = threading.Thread(target=ping_api, daemon=True)
+    # Warmup API in background regardless (for subsequent loads)
+    def warmup_background():
+        try:
+            requests.get(health_endpoint, timeout=30)
+        except Exception:
+            pass
+    
+    thread = threading.Thread(target=warmup_background, daemon=True)
     thread.start()
-
-warmup_api()
+else:
+    # On subsequent reruns, assume API is warm
+    if "api_cold_start" not in st.session_state:
+        st.session_state.api_cold_start = False
 
 st.session_state.api_url = API_URL
 
@@ -131,6 +141,30 @@ def fetch_job_results(file_bytes, file_name):
     return None
 
 st.title("📄 CV Match Engine")
+
+# Show loading bar if cold start detected
+if st.session_state.api_cold_start is True:
+    # Use a placeholder that will be cleared after loading
+    loading_placeholder = st.empty()
+    
+    with loading_placeholder.container():
+        st.info("Initialisation du serveur en cours...")
+        progress_bar = st.progress(0)
+    
+    # Animate the progress bar
+    for i in range(101):
+        loading_placeholder.empty()
+        with loading_placeholder.container():
+            st.info("Initialisation du serveur en cours...")
+            st.progress(i)
+        time.sleep(0.2)  # 20 seconds total for 101 steps * 0.2s
+    
+    # Clear the placeholder after loading completes
+    loading_placeholder.empty()
+    
+    # Mark cold start as complete so it doesn't happen again
+    st.session_state.api_cold_start = False
+
 st.markdown('<p class="sub-title">Trouvez les offres d\'emploi qui correspondent vraiment à votre profil</p>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("Déposez votre CV (PDF)", type=["pdf"], max_upload_size=5) 
