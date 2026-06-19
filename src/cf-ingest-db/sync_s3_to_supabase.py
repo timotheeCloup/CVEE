@@ -18,7 +18,7 @@ def get_s3_client(aws_access_key_id, aws_secret_access_key):
 
 
 def get_latest_batch_parquet_files(s3_client, bucket, prefix):
-    """Return list of parquet keys with the most recent LastModified timestamp"""
+    """Return list of parquet keys with the most recent LastModified day"""
     all_parquet_objs = []
     
     paginator = s3_client.get_paginator("list_objects_v2")
@@ -34,10 +34,10 @@ def get_latest_batch_parquet_files(s3_client, bucket, prefix):
     if not all_parquet_objs:
         return []
 
-    latest_mtime = max(obj["LastModified"] for obj in all_parquet_objs)
+    latest_day = max(obj["LastModified"].date() for obj in all_parquet_objs)
     latest_keys = [
         obj["Key"] for obj in all_parquet_objs 
-        if obj["LastModified"] == latest_mtime
+        if obj["LastModified"].date() == latest_day
     ]
 
     return latest_keys
