@@ -1,0 +1,9 @@
+[project]
+name = "cvee-ui"
+version = "0.1.0"
+description = "CVEE Streamlit UI"
+requires-python = ">=3.12"
+
+[dependencies]
+streamlit = ">=1.20.0"
+requests = ">=2.28.0"

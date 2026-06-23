@@ -17,12 +17,12 @@ services:
       retries: 5
 
   cvee-api:
-    build: ../api
+    build: ./api
     container_name: cvee-api
     ports:
       - "8000:8080"
     volumes:
-    - ../api:/app
+    - ./api:/app
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
@@ -33,7 +33,7 @@ services:
       postgres:
         condition: service_healthy
   cvee-ui:
-    build: ../ui
+    build: ./ui
     ports:
       - "8501:8501"
     environment:

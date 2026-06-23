@@ -1,0 +1,1 @@
+# No dependencies — google-auth is pre-installed in Cloud Functions runtime

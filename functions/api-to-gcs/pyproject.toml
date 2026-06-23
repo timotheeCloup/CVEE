@@ -1,0 +1,14 @@
+[project]
+name = "cvee-cf-api-to-gcs"
+version = "0.1.0"
+description = "Cloud Function: fetch France Travail jobs → GCS"
+requires-python = ">=3.12"
+
+[dependencies]
+functions-framework = "==3.7.0"
+pandas = "==2.2.1"
+requests = "==2.32.3"
+pyarrow = "==15.0.2"
+gcsfs = "==2024.2.0"
+google-cloud-secret-manager = "==2.26.0"
+python-dotenv = "==1.0.1"

@@ -2,7 +2,7 @@ import json
 import os
 
 import functions_framework
-from api_to_s3_loader import main as fetch_and_store
+from ft_client import main as fetch_and_store
 from google.cloud import secretmanager
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "cvee-20260208")

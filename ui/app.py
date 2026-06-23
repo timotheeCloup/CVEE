@@ -1,45 +1,41 @@
-import streamlit as st
-import requests
+import contextlib
 import os
-from datetime import datetime
 import threading
 import time
+from datetime import datetime
+
+import requests
+import streamlit as st
 
 st.set_page_config(page_title="CV Match Engine", layout="centered")
 
-# Get API URL from environment variable or default
 API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
 
 # Detect cold start on initial load only
 if "api_cold_start_checked" not in st.session_state:
     st.session_state.api_cold_start_checked = True
-    api_base_url = API_URL.rsplit('/embed-cv', 1)[0]
+    api_base_url = API_URL.rsplit("/embed-cv", 1)[0]
     health_endpoint = f"{api_base_url}/health"
-    
+
     try:
         requests.get(health_endpoint, timeout=2)
         st.session_state.api_cold_start = False
     except Exception:
-        # Timeout or error = cold start detected
         st.session_state.api_cold_start = True
-    
-    # Warmup API in background regardless (for subsequent loads)
+
+    # Warmup API in background for subsequent loads
     def warmup_background():
-        try:
+        with contextlib.suppress(Exception):
             requests.get(health_endpoint, timeout=30)
-        except Exception:
-            pass
-    
+
     thread = threading.Thread(target=warmup_background, daemon=True)
     thread.start()
 else:
-    # On subsequent reruns, assume API is warm
     if "api_cold_start" not in st.session_state:
         st.session_state.api_cold_start = False
 
-st.session_state.api_url = API_URL
-
-st.markdown("""
+st.markdown(
+    """
     <style>
     .sub-title {
         font-size: 20px !important;
@@ -53,28 +49,25 @@ st.markdown("""
         margin-top: -15px;
         margin-bottom: 15px;
     }
-    .stMetric { 
+    .stMetric {
     background-color: var(--secondary-background-color);
     color: var(--text-color);
     border: 1px solid #eee;
     padding: 10px;
     border-radius: 10px;
     }
-    
-    
-    /* Analyse button */ 
+
+    /* Analyse button */
     div[data-testid="stButton"] > button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%) !important;
         background-size: 200% auto !important;
         background-position: left center !important;
-        
         color: white !important;
         border: none !important;
         font-weight: 600 !important;
         font-size: 14px !important;
         letter-spacing: 0.5px !important;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
-        
         transition: background-position 0.5s ease, box-shadow 0.3s ease !important;
     }
 
@@ -83,8 +76,7 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6) !important;
         transform: none !important;
     }
-    
-    
+
     .terms-bubble {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -120,137 +112,145 @@ st.markdown("""
         color: #667eea;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-
-
-API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
-
-# Initialiser la clé de session pour tracker l'upload
+# Initialize session keys
 if "last_upload_id" not in st.session_state:
     st.session_state.last_upload_id = None
 
 if "cached_job_results" not in st.session_state:
     st.session_state.cached_job_results = None
 
+
 def fetch_job_results(file_bytes, file_name):
-    """Gets job results from the API given the CV file bytes."""
-    response = requests.post(API_URL, files={"file": ("cv.pdf", file_bytes)})
-    if response.status_code == 200:
-        return response.json().get("top_jobs", [])
+    """Get job results from the API given the CV file bytes."""
+    try:
+        response = requests.post(API_URL, files={"file": (file_name, file_bytes)})
+        if response.status_code == 200:
+            return response.json().get("top_jobs", [])
+    except Exception:
+        pass
     return None
+
 
 st.title("📄 CV Match Engine")
 
-# Show loading bar if cold start detected
+# Show loading bar if cold start detected (poll health endpoint until ready)
 if st.session_state.api_cold_start is True:
-    # Use a placeholder that will be cleared after loading
     loading_placeholder = st.empty()
-    
-    with loading_placeholder.container():
-        st.info("Initialisation du serveur en cours...")
-        progress_bar = st.progress(0)
-    
-    # Animate the progress bar
-    for i in range(101):
-        loading_placeholder.empty()
-        with loading_placeholder.container():
-            st.info("Initialisation du serveur en cours...")
-            st.progress(i)
-        time.sleep(0.2)  # 20 seconds total for 101 steps * 0.2s
-    
-    # Clear the placeholder after loading completes
+    api_base_url = API_URL.rsplit("/embed-cv", 1)[0]
+    health_endpoint = f"{api_base_url}/health"
+
+    for attempt in range(30):
+        try:
+            resp = requests.get(health_endpoint, timeout=2)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            pass
+        loading_placeholder.info(f"Initialisation du serveur en cours... ({attempt + 1}s)")
+        time.sleep(1)
+
     loading_placeholder.empty()
-    
-    # Mark cold start as complete so it doesn't happen again
     st.session_state.api_cold_start = False
 
-st.markdown('<p class="sub-title">Trouvez les offres d\'emploi qui correspondent vraiment à votre profil</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="sub-title">Trouvez les offres d\'emploi qui correspondent vraiment à votre profil</p>',
+    unsafe_allow_html=True,
+)
 
-uploaded_file = st.file_uploader("Déposez votre CV (PDF)", type=["pdf"], max_upload_size=5) 
+uploaded_file = st.file_uploader("Déposez votre CV (PDF)", type=["pdf"], max_upload_size=5)
 
 if uploaded_file is not None:
-    # Generate a unique ID for the current upload
     current_upload_id = f"{uploaded_file.name}_{uploaded_file.size}"
-    
-    # If a new file is uploaded, reset previous analysis states
+
     if current_upload_id != st.session_state.last_upload_id:
         st.session_state.last_upload_id = current_upload_id
-        st.session_state.cached_job_results = None  # Clear cache for new upload
-        # Reset all analysis states
+        st.session_state.cached_job_results = None
         for key in list(st.session_state.keys()):
             if key.startswith("analysis_"):
                 del st.session_state[key]
-    
-    # Get the results (cached after the first call)
+
     with st.spinner("Analyse de votre profil..."):
         file_bytes = uploaded_file.getvalue()
-        
-        # Check if results are already cached in session state
+
         if st.session_state.cached_job_results is None:
             top_jobs = fetch_job_results(file_bytes, uploaded_file.name)
             st.session_state.cached_job_results = top_jobs
         else:
             top_jobs = st.session_state.cached_job_results
-    
+
     if top_jobs:
         st.success(f"🔥 {len(top_jobs)} jobs trouvés !")
-        
+
         for i, job in enumerate(top_jobs, start=1):
-            raw_date = job.get('date_creation', '')
+            raw_date = job.get("date_creation", "")
             try:
-                clean_date = datetime.fromisoformat(raw_date.replace('Z', '')).strftime('%Y-%m-%d')
-            except:
+                clean_date = datetime.fromisoformat(raw_date.replace("Z", "")).strftime("%Y-%m-%d")
+            except Exception:
                 clean_date = "N/A"
 
-            similarity = job.get('similarity_score', 0)
-            matching_terms = job.get('matching_terms', [])
+            similarity = job.get("similarity_score", 0)
+            matching_terms = job.get("matching_terms", [])
             job_url = f"https://candidat.francetravail.fr/offres/recherche/detail/{job['job_id']}"
-            
-            # Unique key for the each offer analysis button
             job_key = f"analysis_{job['job_id']}"
-            
+
             with st.container(border=True):
                 header_col, right_col = st.columns([0.7, 0.3])
-                
+
                 with header_col:
                     st.markdown(f"### {i}. [{job.get('intitule', 'N/A')}]({job_url})")
-                    st.markdown(f'<p class="company-name">{job.get("entreprise", "N/A")}</p>', unsafe_allow_html=True)
-                
+                    st.markdown(
+                        f'<p class="company-name">{job.get("entreprise", "N/A")}</p>',
+                        unsafe_allow_html=True,
+                    )
+
                 with right_col:
                     st.metric("Match", f"{int(similarity * 100)}%")
-                    
+
                     if matching_terms:
+
                         def toggle_analysis(job_id):
                             st.session_state[job_id] = not st.session_state.get(job_id, False)
-                        
-                        st.button("✨ Analyser", key=f"btn_{job_key}", 
-                                 on_click=toggle_analysis, args=(job_key,),
-                                 use_container_width=True)
-                
+
+                        st.button(
+                            "✨ Analyser",
+                            key=f"btn_{job_key}",
+                            on_click=toggle_analysis,
+                            args=(job_key,),
+                            use_container_width=True,
+                        )
+
                 if st.session_state.get(job_key, False) and matching_terms:
-                    terms_html = ""
-                    for term in matching_terms:
-                        terms_html += f'<span class="term-badge">{term}</span>'
-                    
-                    st.markdown(f"""
+                    terms_html = "".join(
+                        f'<span class="term-badge">{term}</span>' for term in matching_terms
+                    )
+                    st.markdown(
+                        f"""
                         <div class="terms-bubble">
                             <strong>🎯 Mots-clés identifiés :</strong><br><br>
                             {terms_html}
                         </div>
-                    """, unsafe_allow_html=True)
-                
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"📍 {job.get('lieu', 'N/A')}")
                 c2.markdown(f"📄 {job.get('type_contrat', 'N/A')}")
                 c3.markdown(f"📅 {clean_date}")
     else:
-        st.error("API unreachable. Please check your connection.")
+        st.error("Le service API n'est pas disponible. Veuillez réessayer.")
 
-st.markdown("""
+st.markdown(
+    """
     <div class="footer">
         Made by Timothée Cloup-Martin<br>
-        <a href="https://github.com/timotheeCloup/CVEE" target="_blank" class="footer-link">GitHub</a> • 
+        <a href="https://github.com/timotheeCloup/CVEE" target="_blank" class="footer-link">GitHub</a> •
         <a href="https://timotheecloup.github.io/portfolio/" target="_blank" class="footer-link">Portfolio</a>
     </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)

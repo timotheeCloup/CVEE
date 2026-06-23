@@ -1,0 +1,8 @@
+[project]
+name = "cvee-cf-billing-guard"
+version = "0.1.0"
+description = "Cloud Function: auto-disable billing on budget overshoot"
+requires-python = ">=3.12"
+
+# Zero external deps — uses only Python stdlib + GCP metadata server
+[dependencies]

@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS jobs_silver (
     dureeTravailLibelle TEXT,
     dureeTravailLibelleConverti TEXT,
     alternance BOOLEAN,
-    nombrePostes INTEGER, 
+    nombrePostes INTEGER,
     accessibleTH BOOLEAN,
     qualificationCode TEXT,
     qualificationLibelle TEXT,

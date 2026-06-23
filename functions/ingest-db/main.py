@@ -3,9 +3,9 @@ import json
 import os
 
 import functions_framework
-from cleanup_dead_jobs import cleanup_dead_jobs_main
+from cleanup import cleanup_dead_jobs_main
+from gcs_sync import main as ingest_db_main
 from google.cloud import secretmanager
-from sync_s3_to_supabase import main as ingest_db_main
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "cvee-20260208")
 

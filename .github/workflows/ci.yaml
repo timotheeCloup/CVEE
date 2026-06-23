@@ -1,81 +1,58 @@
-name: API Health Check
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, refacto]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
-env:
-  API_URL: "https://cvee-api-1081304882492.europe-west1.run.app"  
 jobs:
-  health-check:
+  lint:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install PDF generation tool
-      run: pip install reportlab
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
-    - name: Generate test PDF
-      run: |
-        python << 'EOF'
-        from reportlab.pdfgen import canvas
-        from io import BytesIO
-        
-        pdf_buffer = BytesIO()
-        c = canvas.Canvas(pdf_buffer)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(50, 750, "John Doe - Senior Software Engineer")
-        
-        c.setFont("Helvetica", 12)
-        c.drawString(50, 720, "Professional Summary:")
-        c.drawString(70, 700, "Senior Python Developer with 8 years of experience")
-        c.drawString(70, 685, "Expertise in FastAPI, Machine Learning, and Cloud Architecture")
-        c.drawString(70, 670, "AWS and GCP certified professional")
-        
-        c.drawString(50, 640, "Technical Skills:")
-        c.drawString(70, 620, "Languages: Python, Java, Go, JavaScript")
-        c.drawString(70, 605, "Frameworks: FastAPI, Django, Flask, TensorFlow")
-        c.drawString(70, 590, "Cloud: AWS, Google Cloud Platform, Azure")
-        c.drawString(70, 575, "Databases: PostgreSQL, MongoDB, Elasticsearch")
-        
-        c.drawString(50, 545, "Experience:")
-        c.drawString(70, 525, "Senior Engineer at Tech Company (2020-2024)")
-        c.drawString(70, 510, "Led development of microservices architecture")
-        c.drawString(70, 495, "Implemented ML pipelines for recommendation engine")
-        
-        c.save()
-        
-        with open("test_cv.pdf", "wb") as f:
-            f.write(pdf_buffer.getvalue())
-        
-        print("Test PDF generated successfully")
-        EOF
+      - run: uv sync --group dev
 
-    - name: Wait for API to be ready
-      run: sleep 5
+      - name: Ruff check
+        run: uv run ruff check .
 
-    - name: Check API health endpoint
-      run: |
-        response=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.API_URL }}/health)
-        if [ "$response" != "200" ]; then
-          echo "API health check failed with status $response"
-          exit 1
-        fi
-        echo "API is healthy (status $response)"
+      - name: Ruff format check
+        run: uv run ruff format --check .
 
-    - name: Check API embed-cv endpoint
-      run: |
-        response=$(curl -s -w "\n%{http_code}" -F "file=@test_cv.pdf" ${{ env.API_URL }}/embed-cv -o /dev/null)
-        http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" != "200" ]; then
-          echo "Embed-cv endpoint failed with status $http_code"
-          exit 1
-        fi
-        echo "Embed-cv endpoint is working (status $http_code)"
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Notify success
-      run: echo "All health checks passed"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - run: uv sync --group dev
+
+      - name: pytest
+        run: uv run pytest tests/ -v
+
+  build-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API Docker image
+        run: docker build -t cvee-api:ci api/
+
+      - name: Health check
+        run: |
+          docker run -d --rm -p 8080:8080 --name api cvee-api:ci
+          for i in $(seq 1 20); do
+            if curl -s http://localhost:8080/health | grep -q healthy; then
+              echo "OK"; exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL"; docker logs api; exit 1

@@ -73,9 +73,8 @@ The matching combines two complementary approaches:
 ### Backend & API
 - **FastAPI** - Modern, async web framework for the search API
 - **Python 3.11** - Primary language for all services
-- **PyPDF2** - CV text extraction from PDF files
+- **pypdf** - CV text extraction from PDF files
 - **Sentence Transformers** - BAAI/bge-small-en for embedding generation (384 dims)
-- **scikit-learn** - Cosine similarity calculations
 
 ### Data & Storage
 - **Supabase (PostgreSQL 16)** - Vector database with pgvector extension
@@ -131,14 +130,19 @@ CVEE/
 │   ├── cf-ingest-db/                      # Cloud Function: S3 → Supabase
 │   │   ├── main.py                        # Cloud Function entry point
 │   │   ├── sync_s3_to_supabase.py        # S3 to PostgreSQL sync logic
+│   │   ├── cleanup_dead_jobs.py          # Dead job offer link verification
 │   │   └── requirements.txt
 │   │
+│   ├── init_db.py                         # PostgreSQL schema initialization
 │   ├── jobs_ingestion_silver.ipynb        # Databricks: Bronze → Silver
 │   ├── jobs_embeddings_gold.ipynb         # Databricks: Silver → Gold (embeddings)
 │   └── jobs_export.ipynb                  # Databricks: Export to S3
 │
+├── docker/                                # Local development
+│   └── docker-compose.yml
+│
 └── .github/
-    └── workflows/ci.yaml                  # GitHub Actions health checks
+    └── workflows/ci.yaml                  # GitHub Actions CI
 ```
 
 ---
