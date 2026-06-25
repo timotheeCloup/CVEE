@@ -8,6 +8,9 @@ FT_AUTH_URL = "https://entreprise.francetravail.fr/connexion/oauth2/access_token
 FT_API_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
 FT_SCOPE = "o2dsoffre api_offresdemploiv2"
 
+DEFAULT_PAGE_SIZE = 150
+DEFAULT_MAX_INDEX = 3000
+
 
 def get_ft_token(ft_client_id, ft_client_secret):
     """Obtain France Travail API OAuth2 token"""
@@ -21,6 +24,7 @@ def get_ft_token(ft_client_id, ft_client_secret):
                 "scope": FT_SCOPE,
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
         )
         response.raise_for_status()
         token_data = response.json()
@@ -31,24 +35,48 @@ def get_ft_token(ft_client_id, ft_client_secret):
         return None
 
 
+def _build_params(start_index, page_size, sort, niveau_formation, publiee_depuis, min_date, max_date):
+    params = {
+        "range": f"{start_index}-{start_index + page_size - 1}",
+        "sort": sort,
+        "niveauFormation": niveau_formation,
+    }
+    if min_date and max_date:
+        params["minDateCreation"] = min_date
+        params["maxDateCreation"] = max_date
+    else:
+        params["publieeDepuis"] = publiee_depuis
+    return params
+
+
 def fetch_jobs_data(
-    token, page_size=150, max_index=3000, sort=1, niveauFormation="NV2", publieeDepuis=1, **kwargs
+    token,
+    page_size=DEFAULT_PAGE_SIZE,
+    max_index=DEFAULT_MAX_INDEX,
+    sort=1,
+    niveau_formation="NV2",
+    publiee_depuis=1,
+    date_min=None,
+    date_max=None,
 ):
-    """Fetch job data from France Travail API with pagination"""
+    """
+    Fetch job data from France Travail API with pagination.
+
+    Two modes:
+    - Daily mode (default): uses `publieeDepuis` (last N days)
+    - Historical backfill: uses `date_min`/`date_max` (YYYY-MM-DD range)
+    """
     jobs = []
     start_index = 0
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     while start_index < max_index:
-        params = {
-            "range": f"{start_index}-{start_index + page_size - 1}",
-            "sort": sort,
-            "niveauFormation": niveauFormation,
-            "publieeDepuis": publieeDepuis,
-            **kwargs,
-        }
+        params = _build_params(
+            start_index, page_size, sort, niveau_formation,
+            publiee_depuis, date_min, date_max,
+        )
         try:
-            response = requests.get(FT_API_URL, headers=headers, params=params)
+            response = requests.get(FT_API_URL, headers=headers, params=params, timeout=60)
             response.raise_for_status()
             data = response.json()
 
@@ -69,18 +97,24 @@ def fetch_jobs_data(
     return jobs
 
 
-def export_to_gcs(jobs, bucket_name):
+def _make_filename(date_min, date_max):
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if date_min and date_max:
+        return f"jobs_raw_{date_min}_{date_max}_{ts}.parquet"
+    return f"jobs_raw_{ts}.parquet"
+
+
+def export_to_gcs(jobs, bucket_name, date_min=None, date_max=None):
     """Export jobs DataFrame to GCS as Parquet using Application Default Credentials"""
     if not jobs:
         print("No jobs to export.")
         return
 
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    gcs_path = f"gs://{bucket_name}/jobs_raw/jobs_raw_{timestamp_str}.parquet"
+    filename = _make_filename(date_min, date_max)
+    gcs_path = f"gs://{bucket_name}/jobs_raw/{filename}"
 
     df = pd.DataFrame(jobs)
 
-    # Replace empty dicts with None (Parquet compatibility)
     for col in df.columns:
         df[col] = df[col].apply(lambda x: None if isinstance(x, dict) and len(x) == 0 else x)
 
@@ -89,14 +123,31 @@ def export_to_gcs(jobs, bucket_name):
     print(f"Export completed: {gcs_path}")
 
 
-def main(ft_client_id, ft_client_secret, bucket_name):
-    """Main function: fetch jobs from FT API → export to GCS"""
+def main(
+    ft_client_id,
+    ft_client_secret,
+    bucket_name,
+    date_min=None,
+    date_max=None,
+    publiee_depuis=1,
+):
+    """
+    Fetch jobs from FT API → export to GCS.
+
+    Daily mode (default):       main(..., publiee_depuis=1)      → jobs from last 24h
+    Historical backfill:        main(..., date_min="2026-01-01", date_max="2026-01-31")
+    """
     token = get_ft_token(ft_client_id, ft_client_secret)
     if not token:
         raise RuntimeError("Failed to obtain France Travail API token")
 
-    jobs = fetch_jobs_data(token)
-    export_to_gcs(jobs, bucket_name)
+    jobs = fetch_jobs_data(
+        token,
+        date_min=date_min,
+        date_max=date_max,
+        publiee_depuis=publiee_depuis,
+    )
+    export_to_gcs(jobs, bucket_name, date_min=date_min, date_max=date_max)
 
 
 if __name__ == "__main__":

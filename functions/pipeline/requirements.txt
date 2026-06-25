@@ -1,0 +1,9 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+functions-framework>=3.5.0
+pandas>=2.2.0
+numpy>=1.26.0
+pyarrow>=15.0.0
+gcsfs>=2024.2.0
+sentence-transformers>=2.2.2
+torch>=2.0.0
+google-cloud-secret-manager>=2.0.0

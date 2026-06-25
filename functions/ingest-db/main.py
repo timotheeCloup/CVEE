@@ -21,15 +21,15 @@ def get_config():
 @functions_framework.http
 def ingest_db_cf(request):
     """
-    Cloud Function: ingest new jobs from GCS → Supabase + cleanup dead offers.
-    Triggered by Cloud Scheduler (nightly).
+    Cloud Function: ingest silver + gold from GCS → Supabase + cleanup dead offers.
+    Triggered by Cloud Scheduler (nightly, after Databricks pipeline).
     """
     try:
         print("Starting ingest-db Cloud Function")
         config = get_config()
 
-        # Step 1: Ingest new jobs from GCS
-        print("\n### STEP 1: INGESTION ###")
+        # Step 1: Ingest silver + gold from GCS into Supabase
+        print("\n### STEP 1: INGESTION (GCS → Supabase) ###")
         ingest_db_main(
             bucket_name=config["GCS_BUCKET_NAME"],
             sb_host=config["SB_HOST"],

@@ -1,40 +1,39 @@
-"""
-CVEE Data Pipeline: Bronze → Silver → Gold
-Replaces Databricks notebooks: reads raw jobs from GCS, cleans,
-generates embeddings (multilingual model), writes silver + gold Parquet back to GCS.
-
-Usage:
-    python pipeline.py                          # reads latest raw batch
-    python pipeline.py --raw gs://bucket/jobs_raw/file.parquet  # specific file
-"""
-
-import argparse
 import json
-import os
 import re
-import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import gcsfs
 import numpy as np
 import pandas as pd
 import torch
-from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
-load_dotenv()
-
-# Single-thread torch to avoid conflicts with ThreadPoolExecutor
 torch.set_num_threads(1)
 
-GCS_BUCKET = os.getenv("GCS_BUCKET_NAME", "cvee-20260208")
 MODEL_NAME = "antoinelouis/french-me5-small"
-EMBEDDING_DEVICE = "cpu"
 BATCH_SIZE = 32
+
+PREFIX_RAW = "jobs_raw"
+PREFIX_SILVER = "jobs_silver"
+PREFIX_GOLD = "jobs_gold"
+
+JSON_COLS = [
+    "lieuTravail",
+    "entreprise",
+    "contact",
+    "agence",
+    "origineOffre",
+    "contexteTravail",
+    "salaire",
+    "competences",
+    "formations",
+    "langues",
+    "permis",
+    "qualitesProfessionnelles",
+]
 
 
 def clean_html(text):
-    """Strip HTML tags and entities, collapse whitespace"""
     if text is None:
         return ""
     if isinstance(text, float) and pd.isna(text):
@@ -47,8 +46,7 @@ def clean_html(text):
     return text
 
 
-def extract_field_from_array(val, field="libelle"):
-    """Extract a field from each element of a JSON-like array, join with space"""
+def _extract_field(val, field="libelle"):
     if val is None:
         return ""
     if isinstance(val, float) and pd.isna(val):
@@ -74,7 +72,6 @@ def extract_field_from_array(val, field="libelle"):
 
 
 def _deep_to_list(obj):
-    """Recursively convert numpy types to Python native types"""
     if isinstance(obj, (np.ndarray, list, tuple)):
         return [_deep_to_list(item) for item in obj]
     if isinstance(obj, dict):
@@ -91,7 +88,6 @@ def _deep_to_list(obj):
 
 
 def serialize_json_col(val):
-    """Convert nested dict/list/ndarray to JSON string for Supabase JSONB compatibility"""
     if val is None:
         return None
     if isinstance(val, float) and pd.isna(val):
@@ -102,24 +98,71 @@ def serialize_json_col(val):
     return json.dumps(val, ensure_ascii=False)
 
 
-def main(raw_path=None):
-    t_total = time.time()
+def _list_raw_files(bucket_name, days=None):
+    """Return sorted list of raw parquet file URIs from GCS.
 
-    # --- 1. Read raw data ---
+    days=None → latest file only
+    days=N   → all files from last N days
+    """
     fs = gcsfs.GCSFileSystem()
-    if raw_path and raw_path.startswith("gs://"):
-        raw_file = raw_path
-    else:
-        raw_files = sorted(fs.glob(f"gs://{GCS_BUCKET}/jobs_raw/*.parquet"))
-        if not raw_files:
-            print("No raw files found in GCS.")
-            return
-        raw_file = raw_files[-1]
+    base = f"gs://{bucket_name}/{PREFIX_RAW}/"
+    try:
+        all_files = fs.glob(f"{base}*.parquet")
+    except FileNotFoundError:
+        return []
 
-    print(f"1. Loading {raw_file} ...")
-    df = pd.read_parquet(raw_file, filesystem=fs)
-    print(f"   {len(df)} jobs loaded")
-    t_load = time.time()
+    if not all_files:
+        return []
+
+    if days is None:
+        return [max(all_files)]
+
+    cutoff = datetime.now() - timedelta(days=days)
+    recent = []
+    for f in all_files:
+        try:
+            info = fs.info(f)
+            if info.get("updated", datetime.min).replace(tzinfo=None) >= cutoff:
+                recent.append(f)
+        except Exception:
+            continue
+    return sorted(recent) if recent else [max(all_files)]
+
+
+def _deduplicate(df):
+    """Deduplicate by id, keeping first occurrence."""
+    if "id" not in df.columns:
+        return df
+    return df.drop_duplicates(subset=["id"], keep="first")
+
+
+def run_pipeline(bucket_name, days=None):
+    """Bronze → Silver → Gold.
+
+    days=None → latest raw file only (daily mode)
+    days=N   → last N days of raw files, deduplicated (manual backfill)
+    """
+    fs = gcsfs.GCSFileSystem()
+    raw_files = _list_raw_files(bucket_name, days=days)
+    if not raw_files:
+        print("No raw files found. Aborting.")
+        return None, None
+
+    mode = f"last {days} days" if days else "daily (latest file)"
+    print(f"Pipeline mode: {mode} — {len(raw_files)} raw file(s)")
+
+    # --- 1. Load + deduplicate raw ---
+    dfs = []
+    for rf in raw_files:
+        print(f"  Loading {rf}")
+        dfs.append(pd.read_parquet(rf, filesystem=fs))
+    df = pd.concat(dfs, ignore_index=True)
+    total_before = len(df)
+    df = _deduplicate(df)
+    total_after = len(df)
+    if total_before != total_after:
+        print(f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)")
+    print(f"  {total_after} unique jobs loaded")
 
     # --- 2. Clean HTML ---
     print("2. Cleaning HTML...")
@@ -127,19 +170,14 @@ def main(raw_path=None):
         df["description_clean"] = df["description"].apply(clean_html)
     else:
         df["description_clean"] = ""
-    t_clean = time.time()
-    print(f"   Done in {t_clean - t_load:.1f}s")
 
     # --- 3. Aggregate JSON arrays ---
     print("3. Aggregating competences/formations/qualites...")
-    competences_text = df["competences"].apply(lambda x: extract_field_from_array(x, "libelle"))
-    formations_text = df["formations"].apply(
-        lambda x: extract_field_from_array(x, "domaineLibelle")
-    )
-    qualites_text = df.get("qualitesProfessionnelles", pd.Series([None] * len(df)))
-    qualites_text = qualites_text.apply(lambda x: extract_field_from_array(x, "libelle"))
+    competences_text = df["competences"].apply(lambda x: _extract_field(x, "libelle"))
+    formations_text = df["formations"].apply(lambda x: _extract_field(x, "domaineLibelle"))
+    qualites_col = df.get("qualitesProfessionnelles", pd.Series([None] * len(df)))
+    qualites_text = qualites_col.apply(lambda x: _extract_field(x, "libelle"))
 
-    # Build concatenated text (for embedding via multilingual model)
     df["vector_text_input"] = (
         df["intitule"].fillna("")
         + " "
@@ -151,49 +189,29 @@ def main(raw_path=None):
         + " "
         + qualites_text.fillna("")
     ).str.slice(0, 5000)
-    t_agg = time.time()
-    print(f"   Done in {t_agg - t_clean:.1f}s")
 
-    # --- 4. Generate embeddings (multilingual model, no translation needed) ---
-    print("4. Generating embeddings...")
-    model = SentenceTransformer(MODEL_NAME, device=EMBEDDING_DEVICE)
+    # --- 4. Generate embeddings ---
+    print(f"4. Generating embeddings with {MODEL_NAME}...")
+    model = SentenceTransformer(MODEL_NAME, device="cpu")
     texts = df["vector_text_input"].fillna("").tolist()
     embeddings = model.encode(
         texts, batch_size=BATCH_SIZE, show_progress_bar=False, convert_to_numpy=True
     )
-    t_embed = time.time()
-    print(f"   {len(embeddings)} embeddings ({embeddings.shape[1]} dims) in {t_embed - t_agg:.1f}s")
+    print(f"   {len(embeddings)} embeddings ({embeddings.shape[1]} dims)")
 
-    # --- 5. Build silver DataFrame ---
+    # --- 5. Build silver ---
     print("5. Building silver layer...")
     df_silver = df.copy()
-
-    # Rename id → job_id, use cleaned description
     df_silver["job_id"] = df_silver["id"].astype(str)
-    df_silver.drop(columns=["id", "description_clean"], inplace=True)
+    df_silver.drop(columns=["id", "description_clean"], inplace=True, errors="ignore")
     df_silver["description"] = df["description_clean"]
     df_silver["ingestion_date"] = datetime.now().strftime("%Y-%m-%d")
 
-    # Serialize JSON struct columns
-    json_cols = [
-        "lieuTravail",
-        "entreprise",
-        "contact",
-        "agence",
-        "origineOffre",
-        "contexteTravail",
-        "salaire",
-        "competences",
-        "formations",
-        "langues",
-        "permis",
-        "qualitesProfessionnelles",
-    ]
-    for col in json_cols:
+    for col in JSON_COLS:
         if col in df_silver.columns:
             df_silver[col] = df_silver[col].apply(serialize_json_col)
 
-    # --- 6. Build gold DataFrame ---
+    # --- 6. Build gold ---
     print("6. Building gold layer...")
     df_gold = pd.DataFrame(
         {"job_id": df_silver["job_id"], "embedding": [emb.tolist() for emb in embeddings]}
@@ -201,21 +219,15 @@ def main(raw_path=None):
 
     # --- 7. Write to GCS ---
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    silver_path = f"gs://{GCS_BUCKET}/jobs_silver/jobs_silver_{ts}.parquet"
-    gold_path = f"gs://{GCS_BUCKET}/jobs_gold/jobs_gold_{ts}.parquet"
+    silver_path = f"gs://{bucket_name}/{PREFIX_SILVER}/jobs_silver_{ts}.parquet"
+    gold_path = f"gs://{bucket_name}/{PREFIX_GOLD}/jobs_gold_{ts}.parquet"
 
     print("7. Writing to GCS...")
     df_silver.to_parquet(silver_path, engine="pyarrow", index=False, filesystem=fs)
     df_gold.to_parquet(gold_path, engine="pyarrow", index=False, filesystem=fs)
 
-    t_end = time.time()
-    print(f"\n✅ Pipeline completed in {t_end - t_total:.1f}s")
     print(f"   Silver: {silver_path}  ({len(df_silver)} jobs)")
     print(f"   Gold:   {gold_path}  ({len(df_gold)} jobs)")
+    print("Pipeline completed successfully.")
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="CVEE Data Pipeline")
-    parser.add_argument("--raw", type=str, default=None, help="Specific raw parquet file")
-    args = parser.parse_args()
-    main(raw_path=args.raw)
+    return silver_path, gold_path

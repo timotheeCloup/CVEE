@@ -49,3 +49,10 @@ sandbox/
 src/deploy.sh
 src/CF_DEPLOYMENT_GUIDE.md
 src/CLOUD_FUNCTIONS_README.md
+
+# Terraform
+infra/.tmp/
+infra/.terraform/
+infra/*.tfstate*
+infra/*.tfvars
+!infra/terraform.tfvars.example
