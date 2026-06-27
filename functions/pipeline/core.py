@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from datetime import datetime, timedelta
 
@@ -7,6 +8,11 @@ import numpy as np
 import pandas as pd
 import torch
 from sentence_transformers import SentenceTransformer
+
+# Cloud Functions: /tmp is the only writable path
+os.environ["HF_HOME"] = "/tmp/huggingface"
+os.environ["TRANSFORMERS_CACHE"] = "/tmp/huggingface"
+os.makedirs("/tmp/huggingface", exist_ok=True)
 
 torch.set_num_threads(1)
 
@@ -195,7 +201,7 @@ def run_pipeline(bucket_name, days=None):
     model = SentenceTransformer(MODEL_NAME, device="cpu")
     texts = df["vector_text_input"].fillna("").tolist()
     embeddings = model.encode(
-        texts, batch_size=BATCH_SIZE, show_progress_bar=False, convert_to_numpy=True
+        texts, batch_size=BATCH_SIZE, show_progress_bar=True, convert_to_numpy=True
     )
     print(f"   {len(embeddings)} embeddings ({embeddings.shape[1]} dims)")
 

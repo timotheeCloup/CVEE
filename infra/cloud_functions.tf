@@ -19,21 +19,24 @@ data "archive_file" "ingest_db_source" {
 
 # ── Upload zips to GCS ──
 resource "google_storage_bucket_object" "api_to_gcs_zip" {
-  name   = "sources/api-to-gcs-${data.archive_file.api_to_gcs_source.output_sha256}.zip"
-  bucket = google_storage_bucket.data.name
-  source = data.archive_file.api_to_gcs_source.output_path
+  name       = "sources/api-to-gcs-${data.archive_file.api_to_gcs_source.output_sha256}.zip"
+  bucket     = google_storage_bucket.data.name
+  source     = data.archive_file.api_to_gcs_source.output_path
+  depends_on = [google_storage_bucket_iam_member.user_admin]
 }
 
 resource "google_storage_bucket_object" "pipeline_zip" {
-  name   = "sources/pipeline-${data.archive_file.pipeline_source.output_sha256}.zip"
-  bucket = google_storage_bucket.data.name
-  source = data.archive_file.pipeline_source.output_path
+  name       = "sources/pipeline-${data.archive_file.pipeline_source.output_sha256}.zip"
+  bucket     = google_storage_bucket.data.name
+  source     = data.archive_file.pipeline_source.output_path
+  depends_on = [google_storage_bucket_iam_member.user_admin]
 }
 
 resource "google_storage_bucket_object" "ingest_db_zip" {
-  name   = "sources/ingest-db-${data.archive_file.ingest_db_source.output_sha256}.zip"
-  bucket = google_storage_bucket.data.name
-  source = data.archive_file.ingest_db_source.output_path
+  name       = "sources/ingest-db-${data.archive_file.ingest_db_source.output_sha256}.zip"
+  bucket     = google_storage_bucket.data.name
+  source     = data.archive_file.ingest_db_source.output_path
+  depends_on = [google_storage_bucket_iam_member.user_admin]
 }
 
 # ── Cloud Functions (gen2) ──
@@ -82,7 +85,7 @@ resource "google_cloudfunctions2_function" "pipeline" {
   service_config {
     max_instance_count = 1
     available_memory   = "2048M"
-    timeout_seconds    = 1800
+    timeout_seconds    = 600
   }
 
   depends_on = [google_secret_manager_secret_version.cvee_v1]
@@ -111,4 +114,26 @@ resource "google_cloudfunctions2_function" "ingest_db" {
   }
 
   depends_on = [google_secret_manager_secret_version.cvee_v1]
+}
+
+# ── Allow unauthenticated HTTP triggers (required for curl + Scheduler) ──
+resource "google_cloudfunctions2_function_iam_member" "api_to_gcs_invoker" {
+  cloud_function = google_cloudfunctions2_function.api_to_gcs.name
+  location       = google_cloudfunctions2_function.api_to_gcs.location
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
+}
+
+resource "google_cloudfunctions2_function_iam_member" "pipeline_invoker" {
+  cloud_function = google_cloudfunctions2_function.pipeline.name
+  location       = google_cloudfunctions2_function.pipeline.location
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
+}
+
+resource "google_cloudfunctions2_function_iam_member" "ingest_db_invoker" {
+  cloud_function = google_cloudfunctions2_function.ingest_db.name
+  location       = google_cloudfunctions2_function.ingest_db.location
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
 }

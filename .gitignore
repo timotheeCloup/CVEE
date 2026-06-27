@@ -49,6 +49,7 @@ sandbox/
 src/deploy.sh
 src/CF_DEPLOYMENT_GUIDE.md
 src/CLOUD_FUNCTIONS_README.md
+commands.txt
 
 # Terraform
 infra/.tmp/
