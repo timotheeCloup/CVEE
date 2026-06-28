@@ -54,7 +54,7 @@ def fetch_jobs_data(
     page_size=DEFAULT_PAGE_SIZE,
     max_index=DEFAULT_MAX_INDEX,
     sort=1,
-    niveau_formation="NV2",
+    niveau_formation="NV1",
     publiee_depuis=1,
     date_min=None,
     date_max=None,

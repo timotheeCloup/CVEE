@@ -1,4 +1,3 @@
-import contextlib
 import os
 import threading
 import time
@@ -10,29 +9,45 @@ import streamlit as st
 st.set_page_config(page_title="CV Match Engine", layout="centered")
 
 API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
+HEALTH_URL = API_URL.rsplit("/embed-cv", 1)[0] + "/health"
+COLD_START_TIMEOUT = 25
 
-# Detect cold start on initial load only
-if "api_cold_start_checked" not in st.session_state:
-    st.session_state.api_cold_start_checked = True
-    api_base_url = API_URL.rsplit("/embed-cv", 1)[0]
-    health_endpoint = f"{api_base_url}/health"
+if "api_ready" not in st.session_state:
+    st.session_state.api_ready = False
 
+
+def _warmup_thread():
     try:
-        requests.get(health_endpoint, timeout=2)
-        st.session_state.api_cold_start = False
+        requests.get(HEALTH_URL, timeout=60)
     except Exception:
-        st.session_state.api_cold_start = True
+        pass
 
-    # Warmup API in background for subsequent loads
-    def warmup_background():
-        with contextlib.suppress(Exception):
-            requests.get(health_endpoint, timeout=30)
 
-    thread = threading.Thread(target=warmup_background, daemon=True)
-    thread.start()
-else:
-    if "api_cold_start" not in st.session_state:
-        st.session_state.api_cold_start = False
+if not st.session_state.api_ready:
+    try:
+        requests.get(HEALTH_URL, timeout=3)
+        st.session_state.api_ready = True
+    except Exception:
+        threading.Thread(target=_warmup_thread, daemon=True).start()
+
+        placeholder = st.empty()
+        progress_bar = placeholder.progress(0)
+        status = st.empty()
+
+        for elapsed in range(1, COLD_START_TIMEOUT + 1):
+            try:
+                resp = requests.get(HEALTH_URL, timeout=2)
+                if resp.status_code == 200:
+                    break
+            except Exception:
+                pass
+            progress_bar.progress(elapsed / COLD_START_TIMEOUT)
+            status.info(f"Initialisation du serveur... {elapsed}s / {COLD_START_TIMEOUT}s")
+            time.sleep(1)
+
+        placeholder.empty()
+        status.empty()
+        st.session_state.api_ready = True
 
 st.markdown(
     """
@@ -136,25 +151,6 @@ def fetch_job_results(file_bytes, file_name):
 
 
 st.title("📄 CV Match Engine")
-
-# Show loading bar if cold start detected (poll health endpoint until ready)
-if st.session_state.api_cold_start is True:
-    loading_placeholder = st.empty()
-    api_base_url = API_URL.rsplit("/embed-cv", 1)[0]
-    health_endpoint = f"{api_base_url}/health"
-
-    for attempt in range(30):
-        try:
-            resp = requests.get(health_endpoint, timeout=2)
-            if resp.status_code == 200:
-                break
-        except Exception:
-            pass
-        loading_placeholder.info(f"Initialisation du serveur en cours... ({attempt + 1}s)")
-        time.sleep(1)
-
-    loading_placeholder.empty()
-    st.session_state.api_cold_start = False
 
 st.markdown(
     '<p class="sub-title">Trouvez les offres d\'emploi qui correspondent vraiment à votre profil</p>',

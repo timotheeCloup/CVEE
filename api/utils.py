@@ -232,9 +232,7 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
         processed_results.append(
             {
                 "job_id": r["job_id"],
-                "similarity_score": round(
-                    linear_mapping(r["combined_score"], 0.45, 0.7, 0.2, 0.95), 2
-                ),
+                "similarity_score": round(r["combined_score"] / (EMBEDDING_WEIGHT + FTS_WEIGHT), 2),
                 "embedding_score": round(r["embedding_score"], 4),
                 "fts_score": round(r["fts_score"], 4),
                 "combined_score": round(r["combined_score"], 4),

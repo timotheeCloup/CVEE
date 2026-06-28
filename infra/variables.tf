@@ -10,6 +10,12 @@ variable "region" {
   default     = "us-east1"
 }
 
+variable "cloud_run_region" {
+  description = "GCP region for Cloud Run services (API + UI)"
+  type        = string
+  default     = "europe-west1"
+}
+
 variable "bucket_name" {
   description = "GCS bucket for data storage and function sources"
   type        = string

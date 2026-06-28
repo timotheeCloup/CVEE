@@ -13,6 +13,16 @@ output "ingest_db_url" {
   value       = google_cloudfunctions2_function.ingest_db.service_config[0].uri
 }
 
+output "cvee_api_url" {
+  description = "CVEE FastAPI service URL"
+  value       = google_cloud_run_v2_service.api.uri
+}
+
+output "cvee_ui_url" {
+  description = "CVEE Streamlit UI URL"
+  value       = google_cloud_run_v2_service.ui.uri
+}
+
 output "bucket_name" {
   description = "GCS data bucket"
   value       = google_storage_bucket.data.name

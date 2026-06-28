@@ -6,10 +6,14 @@ import re
 import time
 
 import aiohttp
+import torch
 from utils import search_jobs_vector_hybrid
 
 logger = logging.getLogger(__name__)
 
+torch.set_num_threads(1)
+
+MODEL_NAME = "antoinelouis/french-me5-small"
 _device = "cpu"
 _model = None
 
@@ -19,7 +23,7 @@ def _get_model():
     if _model is None:
         from sentence_transformers import SentenceTransformer
 
-        _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device=_device)
+        _model = SentenceTransformer(MODEL_NAME, device=_device)
     return _model
 
 
