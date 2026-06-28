@@ -128,7 +128,10 @@ def _list_raw_files(bucket_name, days=None):
     for f in all_files:
         try:
             info = fs.info(f)
-            if info.get("updated", datetime.min).replace(tzinfo=None) >= cutoff:
+            updated = info.get("updated", datetime.min)
+            if isinstance(updated, str):
+                updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            if updated.replace(tzinfo=None) >= cutoff:
                 recent.append(f)
         except Exception:
             continue
@@ -142,11 +145,12 @@ def _deduplicate(df):
     return df.drop_duplicates(subset=["id"], keep="first")
 
 
-def run_pipeline(bucket_name, days=None):
+def run_pipeline(bucket_name, days=None, max_jobs=None):
     """Bronze → Silver → Gold.
 
     days=None → latest raw file only (daily mode)
     days=N   → last N days of raw files, deduplicated (manual backfill)
+    max_jobs → limit number of jobs processed (for fast tests)
     """
     fs = gcsfs.GCSFileSystem()
     raw_files = _list_raw_files(bucket_name, days=days)
@@ -169,6 +173,10 @@ def run_pipeline(bucket_name, days=None):
     if total_before != total_after:
         print(f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)")
     print(f"  {total_after} unique jobs loaded")
+
+    if max_jobs and max_jobs < total_after:
+        print(f"  Limiting to {max_jobs} jobs (was {total_after})")
+        df = df.head(max_jobs)
 
     # --- 2. Clean HTML ---
     print("2. Cleaning HTML...")

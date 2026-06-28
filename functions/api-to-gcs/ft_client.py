@@ -58,6 +58,7 @@ def fetch_jobs_data(
     publiee_depuis=1,
     date_min=None,
     date_max=None,
+    max_results=None,
 ):
     """
     Fetch job data from France Travail API with pagination.
@@ -65,10 +66,15 @@ def fetch_jobs_data(
     Two modes:
     - Daily mode (default): uses `publieeDepuis` (last N days)
     - Historical backfill: uses `date_min`/`date_max` (YYYY-MM-DD range)
+
+    max_results overrides max_index to limit total jobs fetched.
     """
     jobs = []
     start_index = 0
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    if max_results is not None:
+        max_index = max_results
 
     while start_index < max_index:
         params = _build_params(
@@ -130,12 +136,14 @@ def main(
     date_min=None,
     date_max=None,
     publiee_depuis=1,
+    max_results=None,
 ):
     """
     Fetch jobs from FT API → export to GCS.
 
     Daily mode (default):       main(..., publiee_depuis=1)      → jobs from last 24h
     Historical backfill:        main(..., date_min="2026-01-01", date_max="2026-01-31")
+    Limit results:              main(..., max_results=100)
     """
     token = get_ft_token(ft_client_id, ft_client_secret)
     if not token:
@@ -146,6 +154,7 @@ def main(
         date_min=date_min,
         date_max=date_max,
         publiee_depuis=publiee_depuis,
+        max_results=max_results,
     )
     export_to_gcs(jobs, bucket_name, date_min=date_min, date_max=date_max)
 

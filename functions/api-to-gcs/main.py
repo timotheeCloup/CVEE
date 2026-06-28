@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timedelta
 
 import functions_framework
 from ft_client import main as fetch_and_store
@@ -21,12 +22,13 @@ def api_to_gcs_cf(request):
     """
     Cloud Function: fetch France Travail jobs → store in GCS.
 
-    Two modes via query parameters:
-    - Daily (default): no params → fetches last 24h (publieeDepuis=1)
-    - Backfill: ?date_min=2026-01-01&date_max=2026-01-31 → fetches historical range
+    Query params:
+    - No params            → daily mode (publieeDepuis=1, last 24h)
+    - ?max_results=N       → quick test: fetch up to N jobs from last 30 days
+    - ?date_min=YYYY-MM-DD&date_max=YYYY-MM-DD            → backfill by date range
+    - ?date_min=YYYY-MM-DD&date_max=YYYY-MM-DD&max_results=N  → backfill + limit
 
-    Also accepts:
-    - ?publiee_depuis=7 → fetch jobs from last 7 days
+    Note: publieeDepuis > 1 is broken on FT API side, only =1 works.
     """
     try:
         print("Starting api-to-gcs Cloud Function")
@@ -34,7 +36,9 @@ def api_to_gcs_cf(request):
 
         date_min = request.args.get("date_min")
         date_max = request.args.get("date_max")
-        publiee_depuis = int(request.args.get("publiee_depuis", 1))
+        max_results = request.args.get("max_results")
+        if max_results:
+            max_results = int(max_results)
 
         if date_min and date_max:
             print(f"Backfill mode: {date_min} → {date_max}")
@@ -44,14 +48,28 @@ def api_to_gcs_cf(request):
                 bucket_name=config["GCS_BUCKET_NAME"],
                 date_min=date_min,
                 date_max=date_max,
+                max_results=max_results,
             )
-        else:
-            print(f"Daily mode: publiee_depuis={publiee_depuis}")
+        elif max_results:
+            today = datetime.now().strftime("%Y-%m-%d")
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            print(f"Quick test mode: last 30 days ({thirty_days_ago} → {today}), max {max_results} jobs")
             fetch_and_store(
                 ft_client_id=config["FT_CLIENT_ID"],
                 ft_client_secret=config["FT_CLIENT_SECRET"],
                 bucket_name=config["GCS_BUCKET_NAME"],
-                publiee_depuis=publiee_depuis,
+                date_min=thirty_days_ago,
+                date_max=today,
+                max_results=max_results,
+            )
+        else:
+            print("Daily mode: publiee_depuis=1")
+            fetch_and_store(
+                ft_client_id=config["FT_CLIENT_ID"],
+                ft_client_secret=config["FT_CLIENT_SECRET"],
+                bucket_name=config["GCS_BUCKET_NAME"],
+                publiee_depuis=1,
+                max_results=max_results,
             )
 
         print("api-to-gcs Cloud Function completed successfully")

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 import gcsfs
 import numpy as np
@@ -6,6 +7,12 @@ import pandas as pd
 import psycopg2
 
 DAYS_BEFORE_PURGE = 30
+
+
+def _parse_gcs_time(t):
+    if isinstance(t, datetime):
+        return t
+    return datetime.fromisoformat(str(t).replace("Z", "+00:00"))
 
 
 def get_latest_batch_parquet_files(bucket, prefix):
@@ -24,8 +31,8 @@ def get_latest_batch_parquet_files(bucket, prefix):
     if not parquet_files:
         return []
 
-    latest_day = max(f["updated"].date() for f in parquet_files)
-    return [f["name"] for f in parquet_files if f["updated"].date() == latest_day]
+    latest_day = max(_parse_gcs_time(f["updated"]).date() for f in parquet_files)
+    return [f["name"] for f in parquet_files if _parse_gcs_time(f["updated"]).date() == latest_day]
 
 
 def read_parquet_from_gcs(gcs_path):

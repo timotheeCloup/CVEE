@@ -22,8 +22,9 @@ def pipeline_cf(request):
     Triggered by Cloud Scheduler (nightly, after api-to-gcs-cf).
 
     Query params:
-    - ?days=N   → process last N days of raw files (manual backfill, deduplicates)
-    - no params → process latest raw file only (daily mode)
+    - ?days=N      → process last N days of raw files (deduplicated)
+    - ?max_jobs=N  → limit jobs processed (for fast tests)
+    - no params    → process latest raw file only (daily mode)
     """
     try:
         print("Starting pipeline Cloud Function")
@@ -37,7 +38,12 @@ def pipeline_cf(request):
         else:
             print("Daily mode: latest raw file only")
 
-        silver_path, gold_path = run_pipeline(bucket_name, days=days)
+        max_jobs = request.args.get("max_jobs")
+        if max_jobs:
+            max_jobs = int(max_jobs)
+            print(f"Max jobs limit: {max_jobs}")
+
+        silver_path, gold_path = run_pipeline(bucket_name, days=days, max_jobs=max_jobs)
 
         if silver_path is None:
             print("Pipeline produced no output.")
