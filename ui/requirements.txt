@@ -1,4 +1,3 @@
-#Core dependencies
+# Core dependencies
 streamlit
 requests
-datetime

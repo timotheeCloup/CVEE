@@ -1,0 +1,17 @@
+[project]
+name = "cvee-api"
+version = "0.1.0"
+description = "CVEE FastAPI service"
+requires-python = ">=3.12"
+
+[dependencies]
+fastapi = ">=0.110.0"
+uvicorn = { version = ">=0.23.0", extras = ["standard"] }
+psycopg2-binary = ">=2.9.7"
+pypdf = ">=3.0.0"
+requests = ">=2.28.0"
+python-dotenv = ">=1.0.0"
+sentence-transformers = ">=3.0.0"
+torch = ">=2.0.0"
+python-multipart = ">=0.0.9"
+aiohttp = ">=3.9.0"

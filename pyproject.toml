@@ -1,0 +1,71 @@
+[project]
+name = "cvee"
+version = "0.1.0"
+description = "CV-Embedding Engine — AI-powered job matching"
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "requests>=2.32.0",
+    "pandas>=2.2.0",
+    "pyarrow>=15.0.0",
+    "gcsfs>=2024.2.0",
+]
+
+[tool.uv.workspace]
+members = [
+    "api",
+    "ui",
+    "pipeline",
+    "functions/api-to-gcs",
+    "functions/ingest-db",
+    "functions/pipeline",
+    "functions/billing-guard",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "python-dotenv>=1.0.0",
+    "requests>=2.32.0",
+    "pandas>=2.2.0",
+    "pyarrow>=15.0.0",
+    "gcsfs>=2024.2.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long handled by formatter
+    "N803",  # FT API param names are camelCase
+    "N806",  # local constants are uppercase
+    "B008",  # FastAPI File(...) default
+]
+exclude = [
+    "src/*",       # legacy Databricks/shared code
+    "infra/*",     # moved to functions/
+    "docker/*",    # just compose file
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

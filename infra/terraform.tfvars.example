@@ -1,0 +1,13 @@
+# ── Required (copy to terraform.tfvars) ──
+ft_client_id     = "PAR_xxxxxxxx"
+ft_client_secret = "xxxxxxxx"
+sb_user          = "postgres.xxxxxxxx"
+sb_password      = "xxxxxxxx"
+
+# ── Optional (defaults shown) ──
+project_id  = "cvee-20260208"
+region      = "us-east1"
+bucket_name = "cvee-20260208"
+sb_host     = "aws-1-eu-west-3.pooler.supabase.com"
+sb_port     = "5432"
+sb_name     = "postgres"

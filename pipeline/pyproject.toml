@@ -1,0 +1,16 @@
+[project]
+name = "cvee-pipeline"
+version = "0.1.0"
+description = "CVEE Data Pipeline — Bronze→Silver→Gold ETL"
+requires-python = ">=3.12"
+
+[dependencies]
+gcsfs = ">=2024.2.0"
+pandas = ">=2.2.0"
+numpy = ">=1.26.0"
+pyarrow = ">=15.0.0"
+python-dotenv = ">=1.0.0"
+psycopg2-binary = ">=2.9.7"
+sentence-transformers = ">=2.2.2"
+torch = { index = "https://download.pytorch.org/whl/cpu" }
+aiohttp = ">=3.9.0"
