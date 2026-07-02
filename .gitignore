@@ -62,3 +62,4 @@ infra/*.tfvars
 !infra/terraform.tfvars.example
 # Databricks notebooks (fallback only)
 src/*.ipynb
+roadmap.md
