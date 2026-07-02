@@ -30,24 +30,36 @@ if not st.session_state.api_ready:
     except Exception:
         threading.Thread(target=_warmup_thread, daemon=True).start()
 
-        placeholder = st.empty()
-        progress_bar = placeholder.progress(0)
-        status = st.empty()
+        st.markdown("<br>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 3, 1])
+        with col2:
+            with st.container(border=True):
+                st.markdown(
+                    """<h3 style='text-align:center;'>Démarrage du service</h3>
+                    <p style='text-align:center;color:#888;'>Chargement du modèle d'IA...
+                    (premier démarrage, ~30 secondes)</p>""",
+                    unsafe_allow_html=True,
+                )
+                progress_bar = st.progress(0)
+                status_text = st.empty()
 
-        for elapsed in range(1, COLD_START_TIMEOUT + 1):
-            try:
-                resp = requests.get(HEALTH_URL, timeout=2)
-                if resp.status_code == 200:
-                    break
-            except Exception:
-                pass
-            progress_bar.progress(elapsed / COLD_START_TIMEOUT)
-            status.info(f"Initialisation du serveur... {elapsed}s / {COLD_START_TIMEOUT}s")
-            time.sleep(1)
+                for elapsed in range(1, COLD_START_TIMEOUT + 1):
+                    progress_bar.progress(elapsed / COLD_START_TIMEOUT)
+                    pct = int(elapsed / COLD_START_TIMEOUT * 100)
+                    status_text.markdown(
+                        f"<p style='text-align:center;color:#667eea;'>{pct}%</p>",
+                        unsafe_allow_html=True,
+                    )
+                    if elapsed % 5 == 1:
+                        try:
+                            requests.get(HEALTH_URL, timeout=2)
+                        except Exception:
+                            pass
+                    time.sleep(1)
 
-        placeholder.empty()
-        status.empty()
+                status_text.empty()
         st.session_state.api_ready = True
+        st.rerun()
 
 st.markdown(
     """
@@ -169,14 +181,25 @@ if uploaded_file is not None:
             if key.startswith("analysis_"):
                 del st.session_state[key]
 
-    with st.spinner("Analyse de votre profil..."):
-        file_bytes = uploaded_file.getvalue()
-
-        if st.session_state.cached_job_results is None:
+    if st.session_state.cached_job_results is None:
+        with st.container(border=True):
+            st.markdown(
+                """<h4 style='text-align:center;'>Analyse de votre profil</h4>
+                <p style='text-align:center;color:#888;'>Extraction des compétences, matching avec les offres...</p>""",
+                unsafe_allow_html=True,
+            )
+            analysis_bar = st.progress(0)
+            for pct in range(20, 100, 30):
+                analysis_bar.progress(pct)
+                time.sleep(0.15)
+            file_bytes = uploaded_file.getvalue()
             top_jobs = fetch_job_results(file_bytes, uploaded_file.name)
+            analysis_bar.progress(100)
+            time.sleep(0.2)
+            analysis_bar.empty()
             st.session_state.cached_job_results = top_jobs
-        else:
-            top_jobs = st.session_state.cached_job_results
+    else:
+        top_jobs = st.session_state.cached_job_results
 
     if top_jobs:
         st.success(f"🔥 {len(top_jobs)} jobs trouvés !")
