@@ -23,7 +23,10 @@ TOP_K = 100
 
 # Hybrid search weights
 EMBEDDING_WEIGHT = 1
-FTS_WEIGHT = 2
+FTS_WEIGHT = 4
+
+MAP_FROM_MIN = EMBEDDING_WEIGHT * 0.30
+MAP_FROM_MAX = EMBEDDING_WEIGHT * 0.60 + FTS_WEIGHT * 0.10
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS = [0.3, 0.6, 1.0]
@@ -118,7 +121,7 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
 
         # Build French FTS query
         fts_terms = cv_text_fts.split()[:1000]
-        tsquery = " | ".join(f"'{term}'" for term in fts_terms) if fts_terms else "'offre'"
+        tsquery = " | ".join(f"'{term}'" for term in fts_terms) if fts_terms else ""
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
         fts_weights_literal = _build_fts_weights_literal()
 
@@ -229,11 +232,13 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
     # Format results for API response
     processed_results = []
     for r in hybrid_results:
+        mapped = linear_mapping(r["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.15, 0.85)
+        clamped = max(0.0, min(1.0, mapped))
         processed_results.append(
             {
                 "job_id": r["job_id"],
-                "similarity_score": round(r["combined_score"] / (EMBEDDING_WEIGHT + FTS_WEIGHT), 2),
-                "embedding_score": round(r["embedding_score"], 4),
+                "similarity_score": round(clamped, 2),
+                "embedding_score": round(r["embedding_score"], 4), 
                 "fts_score": round(r["fts_score"], 4),
                 "combined_score": round(r["combined_score"], 4),
                 "intitule": r["intitule"],

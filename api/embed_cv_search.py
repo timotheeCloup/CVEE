@@ -21,9 +21,11 @@ _model = None
 def _get_model():
     global _model
     if _model is None:
+        t0 = time.time()
         from sentence_transformers import SentenceTransformer
 
         _model = SentenceTransformer(MODEL_NAME, device=_device)
+        logger.info("Model loaded (cold start): %.2fs", time.time() - t0)
     return _model
 
 
@@ -43,7 +45,16 @@ FRENCH_STOPWORDS = load_french_stopwords()
 
 def clean_text_for_fts(text):
     """Clean CV text for full-text search: remove French stopwords and short words."""
-    text = re.sub(r"\s+", " ", text).lower()
+    text = text.strip()
+    words = text.split()
+    avg_len = sum(len(w) for w in words) / max(len(words), 1)
+    if avg_len < 1.5:
+        text = text.lower()
+        text = re.sub(r"  +", "\n", text)
+        text = re.sub(r" ", "", text)
+        text = re.sub(r"\n", " ", text)
+    else:
+        text = re.sub(r"\s+", " ", text).lower()
     text = re.sub(r"[^\w\s\+\#\-]", " ", text)
     text = re.sub(r"\s+", " ", text)
     words = text.split()
