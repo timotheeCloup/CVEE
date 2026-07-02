@@ -38,8 +38,8 @@ resource "google_cloud_scheduler_job" "pipeline" {
 
 resource "google_cloud_scheduler_job" "ingest_db" {
   name        = "ingest-db-scheduler"
-  description = "Trigger ingest-db-cf every day at 23:30 UTC"
-  schedule    = "30 23 * * *"
+  description = "Trigger ingest-db-cf every day at 22:00 UTC"
+  schedule    = "0 22 * * *"
   time_zone   = "UTC"
   region      = var.region
 

@@ -37,7 +37,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       resources {
         limits = {
-          cpu    = "2"
+          cpu    = "1"
           memory = "2048Mi"
         }
       }
