@@ -30,12 +30,10 @@ if not st.session_state.api_ready:
         threading.Thread(target=_warmup_thread, daemon=True).start()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1, 3, 1])
+        col1, col2, col3 = st.columns([1, 5, 1])
         with col2, st.container(border=True):
             st.markdown(
-                """<h3 style='text-align:center;'>Démarrage du service</h3>
-                <p style='text-align:center;color:#888;'>Chargement du modèle d'IA...
-                (premier démarrage, ~30 secondes)</p>""",
+                """<h3 style='text-align:center;'>Chargement...</h3>""",
                 unsafe_allow_html=True,
             )
             progress_bar = st.progress(0)
@@ -178,22 +176,10 @@ if uploaded_file is not None:
                 del st.session_state[key]
 
     if st.session_state.cached_job_results is None:
-        with st.container(border=True):
-            st.markdown(
-                """<h4 style='text-align:center;'>Analyse de votre profil</h4>
-                <p style='text-align:center;color:#888;'>Extraction des compétences, matching avec les offres...</p>""",
-                unsafe_allow_html=True,
-            )
-            analysis_bar = st.progress(0)
-            for pct in range(20, 100, 30):
-                analysis_bar.progress(pct)
-                time.sleep(0.15)
-            file_bytes = uploaded_file.getvalue()
+        file_bytes = uploaded_file.getvalue()
+        with st.spinner("Analyse du profil en cours..."):
             top_jobs = fetch_job_results(file_bytes, uploaded_file.name)
-            analysis_bar.progress(100)
-            time.sleep(0.2)
-            analysis_bar.empty()
-            st.session_state.cached_job_results = top_jobs
+        st.session_state.cached_job_results = top_jobs
     else:
         top_jobs = st.session_state.cached_job_results
 
