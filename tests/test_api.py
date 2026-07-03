@@ -4,6 +4,6 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_health():
+async def test_health() -> None:
     """Simulate a health check response."""
     assert 1 == 1  # placeholder until FastAPI test client is set up

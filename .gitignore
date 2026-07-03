@@ -64,3 +64,6 @@ infra/*.tfvars
 # Databricks notebooks (fallback only)
 src/*.ipynb
 roadmap.md
+functions/api-to-gcs/shared/
+functions/pipeline/shared/
+functions/ingest-db/shared/

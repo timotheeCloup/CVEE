@@ -1,40 +1,41 @@
 import io
-import logging
 import os
 import re
 import time
+from typing import Any
 
 import psycopg2
+import structlog
 from dotenv import load_dotenv
 from psycopg2 import pool
 from pypdf import PdfReader
 
-logger = logging.getLogger(__name__)
+logger: Any = structlog.get_logger()
 
 load_dotenv()
 
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", "5432"))
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_NAME = os.getenv("DB_NAME")
+DB_HOST: str | None = os.getenv("DB_HOST")
+DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
+DB_USER: str | None = os.getenv("DB_USER")
+DB_PASSWORD: str | None = os.getenv("DB_PASSWORD")
+DB_NAME: str | None = os.getenv("DB_NAME")
 
-TOP_K = 100
+TOP_K: int = 100
 
 # Hybrid search weights
-EMBEDDING_WEIGHT = 1
-FTS_WEIGHT = 4
+EMBEDDING_WEIGHT: int = 1
+FTS_WEIGHT: int = 4
 
-MAP_FROM_MIN = EMBEDDING_WEIGHT * 0.30
-MAP_FROM_MAX = EMBEDDING_WEIGHT * 0.60 + FTS_WEIGHT * 0.10
+MAP_FROM_MIN: float = EMBEDDING_WEIGHT * 0.30
+MAP_FROM_MAX: float = EMBEDDING_WEIGHT * 0.60 + FTS_WEIGHT * 0.10
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
-FTS_WEIGHTS = [0.3, 0.6, 1.0]
+FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
 
-_db_pool = None
+_db_pool: Any = None
 
 
-def _get_pool():
+def _get_pool() -> Any:
     global _db_pool
     if _db_pool is None and DB_HOST:
         _db_pool = pool.ThreadedConnectionPool(
@@ -43,7 +44,7 @@ def _get_pool():
     return _db_pool
 
 
-def db_connection():
+def db_connection() -> Any:
     """Get a connection from the pool (or create one ad-hoc if no pool)"""
     p = _get_pool()
     if p:
@@ -53,7 +54,7 @@ def db_connection():
     )
 
 
-def db_release(conn):
+def db_release(conn: Any) -> None:
     p = _get_pool()
     if p:
         p.putconn(conn)
@@ -61,7 +62,7 @@ def db_release(conn):
         conn.close()
 
 
-def extract_text_from_pdf(file_bytes):
+def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from first page of PDF"""
     reader = PdfReader(io.BytesIO(file_bytes))
     text = ""
@@ -70,13 +71,13 @@ def extract_text_from_pdf(file_bytes):
     return text.strip()
 
 
-def extract_french_keywords_from_headline(headline):
+def extract_french_keywords_from_headline(headline: Any) -> list[str]:
     """Extract French keywords from ts_headline <b>...</b> fragments"""
     if not headline:
         return []
     marked_terms = re.findall(r"<b>([^<]+)</b>", str(headline))
-    keywords = []
-    seen = set()
+    keywords: list[str] = []
+    seen: set[str] = set()
     for term in marked_terms:
         clean_term = re.sub(r"[^\w\s]", "", term.strip().lower())
         words = [w for w in clean_term.split() if len(w) > 2]
@@ -88,20 +89,24 @@ def extract_french_keywords_from_headline(headline):
     return keywords[:10]
 
 
-def linear_mapping(value, from_min, from_max, to_min, to_max):
+def linear_mapping(
+    value: float, from_min: float, from_max: float, to_min: float, to_max: float
+) -> float:
     """Linearly map a value from one range to another"""
     if from_max - from_min == 0:
         return to_min
     return to_min + (to_max - to_min) * (value - from_min) / (from_max - from_min)
 
 
-def _build_fts_weights_literal():
+def _build_fts_weights_literal() -> str:
     """Build PostgreSQL tsvector weights literal string like '{0, 0.3, 0.6, 1.0}'"""
     weights = [0] + FTS_WEIGHTS  # [D, C, B, A], D=0 unused
     return "{" + ", ".join(str(w) for w in weights) + "}"
 
 
-def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
+def search_jobs_vector_hybrid(
+    embedding: list[float], cv_text_fts: str, cv_text_orig: str
+) -> list[dict[str, Any]]:
     """
     Hybrid job search combining FTS (French) and semantic embedding (English).
 
@@ -114,10 +119,8 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
     try:
         cur = conn.cursor()
         t_conn = time.time()
-        logger.info("DB connection: %.3fs", t_conn - t_start)
-        logger.info(
-            "CV text for FTS: %d chars, Embedding dim: %d", len(cv_text_fts), len(embedding)
-        )
+        logger.info("db_connection", duration=round(t_conn - t_start, 3))
+        logger.info("fts_prep", fts_chars=len(cv_text_fts), embedding_dim=len(embedding))
 
         # Build French FTS query
         fts_terms = cv_text_fts.split()[:1000]
@@ -173,7 +176,7 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
         db_release(conn)
 
     t_query = time.time()
-    logger.info("Query execution: %.3fs (retrieved %d jobs)", t_query - t_conn, len(results))
+    logger.info("query_execution", duration=round(t_query - t_conn, 3), results=len(results))
 
     # Process results (already sorted by combined_score)
     hybrid_results = []
@@ -207,26 +210,27 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
         )
 
     t_process = time.time()
-    logger.info("Processing: %.3fs", t_process - t_query)
+    logger.info("processing", duration=round(t_process - t_query, 3))
 
     # Summary stats
     fts_non_zero = sum(1 for r in hybrid_results if r["fts_score"] > 0)
     logger.info(
-        "Weights: %.0f%% embedding + %.0f%% FTS | FTS levels(C,B,A): %s | Results with FTS>0: %d/%d",
-        EMBEDDING_WEIGHT * 100,
-        FTS_WEIGHT * 100,
-        FTS_WEIGHTS,
-        fts_non_zero,
-        len(hybrid_results),
+        "search_weights",
+        embedding_pct=EMBEDDING_WEIGHT * 100,
+        fts_pct=FTS_WEIGHT * 100,
+        fts_levels=FTS_WEIGHTS,
+        fts_non_zero=fts_non_zero,
+        total=len(hybrid_results),
     )
 
     if hybrid_results:
+        r = hybrid_results[0]
         logger.info(
-            "Top result: Emb=%.4f FTS=%.4f Combined=%.4f %s",
-            hybrid_results[0]["embedding_score"],
-            hybrid_results[0]["fts_score"],
-            hybrid_results[0]["combined_score"],
-            hybrid_results[0]["intitule"][:40],
+            "top_result",
+            embedding_score=round(r["embedding_score"], 4),
+            fts_score=round(r["fts_score"], 4),
+            combined=round(r["combined_score"], 4),
+            intitule=r["intitule"][:40],
         )
 
     # Format results for API response
