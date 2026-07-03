@@ -32,3 +32,8 @@ output "secret_name" {
   description = "Secret Manager secret ID"
   value       = google_secret_manager_secret.cvee.secret_id
 }
+
+output "workflow_name" {
+  description = "Cloud Workflow ETL pipeline name"
+  value       = google_workflows_workflow.etl_pipeline.name
+}
