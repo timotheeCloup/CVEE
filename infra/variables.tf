@@ -94,6 +94,7 @@ variable "db_password" {
   description = "Local dev DB password"
   type        = string
   default     = "postgres"
+  sensitive   = true
 }
 
 # ── Other ──
