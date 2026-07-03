@@ -1,5 +1,5 @@
 # CVEE project commands — run `just` or `just --list`
-set shell := ["bash", "-euo", "pipefail"]
+set shell := ["bash", "-e", "-u", "-o", "pipefail", "-c"]
 
 PROJECT := "cvee-20260208"
 REGION := "us-east1"
