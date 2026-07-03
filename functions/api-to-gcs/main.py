@@ -1,20 +1,8 @@
-import json
-import os
 from datetime import datetime, timedelta
 
 import functions_framework
 from ft_client import main as fetch_and_store
-from google.cloud import secretmanager
-
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "cvee-20260208")
-
-
-def get_config():
-    """Load the single cvee-config secret from Secret Manager (1 version = free)"""
-    client = secretmanager.SecretManagerServiceClient()
-    resource_name = f"projects/{PROJECT_ID}/secrets/cvee-secrets/versions/latest"
-    response = client.access_secret_version(request={"name": resource_name})
-    return json.loads(response.payload.data.decode("UTF-8"))
+from shared.config import get_config
 
 
 @functions_framework.http

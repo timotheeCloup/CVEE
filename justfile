@@ -22,6 +22,12 @@ deploy-ui:
 
 # ── Cloud Functions (quick dev redeploy) ──
 
+# Copy shared module into each CF dir (required before deploy)
+cf-prep:
+    rsync -r --delete functions/shared/ functions/api-to-gcs/shared/
+    rsync -r --delete functions/shared/ functions/pipeline/shared/
+    rsync -r --delete functions/shared/ functions/ingest-db/shared/
+
 # Deploy api-to-gcs-cf
 cf-api:
     gcloud functions deploy api-to-gcs-cf \
@@ -50,7 +56,7 @@ cf-ingest:
         --source=functions/ingest-db
 
 # Deploy all 3 CFs
-cf-all: cf-api cf-pipeline cf-ingest
+cf-all: cf-prep cf-api cf-pipeline cf-ingest
 
 # ── ETL Pipeline ──
 

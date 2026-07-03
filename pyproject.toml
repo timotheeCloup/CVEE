@@ -32,6 +32,7 @@ dev = [
     "pandas>=2.2.0",
     "pyarrow>=15.0.0",
     "gcsfs>=2024.2.0",
+    "mypy>=2.1.0",
 ]
 
 [tool.ruff]
@@ -69,3 +70,11 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+explicit_package_bases = true
+disallow_untyped_decorators = false
+exclude = ["src/", "infra/", "scripts/", "pipeline/", "functions/", "ui/"]
+ignore_missing_imports = true
