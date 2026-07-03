@@ -8,3 +8,4 @@ sentence-transformers>=3.0.0
 torch>=2.0.0
 python-multipart>=0.0.9
 aiohttp>=3.9.0
+structlog>=24.0.0
