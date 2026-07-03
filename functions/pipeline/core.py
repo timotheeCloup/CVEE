@@ -171,7 +171,9 @@ def run_pipeline(bucket_name, days=None, max_jobs=None):
     df = _deduplicate(df)
     total_after = len(df)
     if total_before != total_after:
-        print(f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)")
+        print(
+            f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)"
+        )
     print(f"  {total_after} unique jobs loaded")
 
     if max_jobs and max_jobs < total_after:

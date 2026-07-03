@@ -30,15 +30,13 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-sys.path.insert(0, str(PROJECT_ROOT / "functions" / "api-to-gcs"))
-
 from dotenv import load_dotenv
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-from ft_client import fetch_jobs_data, export_to_gcs, get_ft_token
+sys.path.insert(0, str(PROJECT_ROOT / "functions" / "api-to-gcs"))
+from ft_client import export_to_gcs, fetch_jobs_data, get_ft_token  # noqa: E402
 
 
 def generate_month_ranges(date_min_str, date_max_str):
@@ -51,7 +49,9 @@ def generate_month_ranges(date_min_str, date_max_str):
         month_start = current.strftime("%Y-%m-%d")
         month_end_date = min(
             end,
-            datetime(current.year, current.month, calendar.monthrange(current.year, current.month)[1]),
+            datetime(
+                current.year, current.month, calendar.monthrange(current.year, current.month)[1]
+            ),
         )
         month_end = month_end_date.strftime("%Y-%m-%d")
         yield month_start, month_end
@@ -62,11 +62,18 @@ def generate_month_ranges(date_min_str, date_max_str):
             current = datetime(current.year, current.month + 1, 1)
 
 
-def run_backfill(date_min_str, date_max_str, bucket_name, ft_client_id, ft_client_secret,
-                 with_pipeline=False, max_index=3000):
-    print(f"\n{'='*60}")
+def run_backfill(
+    date_min_str,
+    date_max_str,
+    bucket_name,
+    ft_client_id,
+    ft_client_secret,
+    with_pipeline=False,
+    max_index=3000,
+):
+    print(f"\n{'=' * 60}")
     print(f"Backfill: {date_min_str} → {date_max_str}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     token = get_ft_token(ft_client_id, ft_client_secret)
     if not token:
@@ -105,9 +112,13 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--date-min", type=str, help="Start date (YYYY-MM-DD)")
     group.add_argument("--months", type=int, help="Backfill last N months from today")
-    parser.add_argument("--date-max", type=str, help="End date (YYYY-MM-DD), required if --date-min is set")
+    parser.add_argument(
+        "--date-max", type=str, help="End date (YYYY-MM-DD), required if --date-min is set"
+    )
     parser.add_argument("--pipeline", action="store_true", help="Run pipeline after each chunk")
-    parser.add_argument("--max-index", type=int, default=3000, help="Max results per chunk (default: 3000)")
+    parser.add_argument(
+        "--max-index", type=int, default=3000, help="Max results per chunk (default: 3000)"
+    )
 
     args = parser.parse_args()
 
@@ -116,7 +127,9 @@ def main():
     bucket_name = os.getenv("GCS_BUCKET_NAME")
 
     if not all([ft_client_id, ft_client_secret, bucket_name]):
-        print("ERROR: Missing environment variables. Set FT_CLIENT_ID, FT_CLIENT_SECRET, GCS_BUCKET_NAME")
+        print(
+            "ERROR: Missing environment variables. Set FT_CLIENT_ID, FT_CLIENT_SECRET, GCS_BUCKET_NAME"
+        )
         print("You can create a .env file at the project root.")
         sys.exit(1)
 
@@ -146,8 +159,13 @@ def main():
     for start, end in chunks:
         try:
             run_backfill(
-                start, end, bucket_name, ft_client_id, ft_client_secret,
-                with_pipeline=args.pipeline, max_index=args.max_index,
+                start,
+                end,
+                bucket_name,
+                ft_client_id,
+                ft_client_secret,
+                with_pipeline=args.pipeline,
+                max_index=args.max_index,
             )
         except Exception as e:
             print(f"ERROR on chunk {start}→{end}: {e}")
