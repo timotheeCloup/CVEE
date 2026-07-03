@@ -1,0 +1,60 @@
+# ── CVEE ETL Pipeline Workflow ──
+# Orchestrates: api-to-gcs → pipeline → ingest-db in sequence
+# Free tier: 5,000 steps/month → ~270 steps/month for daily execution
+main:
+  steps:
+    - fetch_api:
+        try:
+          call: http.post
+          args:
+            url: ${api_to_gcs_url}
+          result: api_result
+        retry:
+          predicate: $${http.default_retry_predicate}
+          max_retries: 3
+          backoff:
+            initial_delay: 10
+            max_delay: 120
+            multiplier: 2
+    - check_api:
+        switch:
+          - condition: $${api_result.code == 200}
+            next: run_pipeline
+        next: pipeline_failed
+    - run_pipeline:
+        try:
+          call: http.post
+          args:
+            url: ${pipeline_url}
+          result: pipeline_result
+        retry:
+          predicate: $${http.default_retry_predicate}
+          max_retries: 3
+          backoff:
+            initial_delay: 10
+            max_delay: 120
+            multiplier: 2
+    - check_pipeline:
+        switch:
+          - condition: $${pipeline_result.code == 200}
+            next: run_ingest
+        next: ingest_failed
+    - run_ingest:
+        try:
+          call: http.post
+          args:
+            url: ${ingest_db_url}
+          result: ingest_result
+        retry:
+          predicate: $${http.default_retry_predicate}
+          max_retries: 3
+          backoff:
+            initial_delay: 10
+            max_delay: 120
+            multiplier: 2
+    - finalize:
+        return: $${ingest_result.code}
+    - pipeline_failed:
+        raise: $${"ETL failed at api-to-gcs step: HTTP " + string(api_result.code)}
+    - ingest_failed:
+        raise: $${"ETL failed at pipeline step: HTTP " + string(pipeline_result.code)}
