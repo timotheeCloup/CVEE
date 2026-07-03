@@ -238,7 +238,7 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
             {
                 "job_id": r["job_id"],
                 "similarity_score": round(clamped, 2),
-                "embedding_score": round(r["embedding_score"], 4), 
+                "embedding_score": round(r["embedding_score"], 4),
                 "fts_score": round(r["fts_score"], 4),
                 "combined_score": round(r["combined_score"], 4),
                 "intitule": r["intitule"],

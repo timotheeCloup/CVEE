@@ -1,3 +1,4 @@
+import contextlib
 import os
 import threading
 import time
@@ -17,10 +18,8 @@ if "api_ready" not in st.session_state:
 
 
 def _warmup_thread():
-    try:
+    with contextlib.suppress(Exception):
         requests.get(HEALTH_URL, timeout=60)
-    except Exception:
-        pass
 
 
 if not st.session_state.api_ready:
@@ -32,32 +31,29 @@ if not st.session_state.api_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 3, 1])
-        with col2:
-            with st.container(border=True):
-                st.markdown(
-                    """<h3 style='text-align:center;'>Démarrage du service</h3>
-                    <p style='text-align:center;color:#888;'>Chargement du modèle d'IA...
-                    (premier démarrage, ~30 secondes)</p>""",
+        with col2, st.container(border=True):
+            st.markdown(
+                """<h3 style='text-align:center;'>Démarrage du service</h3>
+                <p style='text-align:center;color:#888;'>Chargement du modèle d'IA...
+                (premier démarrage, ~30 secondes)</p>""",
+                unsafe_allow_html=True,
+            )
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for elapsed in range(1, COLD_START_TIMEOUT + 1):
+                progress_bar.progress(elapsed / COLD_START_TIMEOUT)
+                pct = int(elapsed / COLD_START_TIMEOUT * 100)
+                status_text.markdown(
+                    f"<p style='text-align:center;color:#667eea;'>{pct}%</p>",
                     unsafe_allow_html=True,
                 )
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+                if elapsed % 5 == 1:
+                    with contextlib.suppress(Exception):
+                        requests.get(HEALTH_URL, timeout=2)
+                time.sleep(1)
 
-                for elapsed in range(1, COLD_START_TIMEOUT + 1):
-                    progress_bar.progress(elapsed / COLD_START_TIMEOUT)
-                    pct = int(elapsed / COLD_START_TIMEOUT * 100)
-                    status_text.markdown(
-                        f"<p style='text-align:center;color:#667eea;'>{pct}%</p>",
-                        unsafe_allow_html=True,
-                    )
-                    if elapsed % 5 == 1:
-                        try:
-                            requests.get(HEALTH_URL, timeout=2)
-                        except Exception:
-                            pass
-                    time.sleep(1)
-
-                status_text.empty()
+            status_text.empty()
         st.session_state.api_ready = True
         st.rerun()
 

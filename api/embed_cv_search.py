@@ -69,9 +69,12 @@ async def verify_job_link(job_id: str, timeout: float = 0.2) -> dict:
     """
     job_url = f"https://candidat.francetravail.fr/offres/recherche/detail/{job_id}"
     try:
-        async with aiohttp.ClientSession() as session, session.head(
-            job_url, timeout=aiohttp.ClientTimeout(total=timeout), allow_redirects=True
-        ) as resp:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.head(
+                job_url, timeout=aiohttp.ClientTimeout(total=timeout), allow_redirects=True
+            ) as resp,
+        ):
             return {"job_id": job_id, "alive": resp.status == 200, "status": resp.status}
     except TimeoutError:
         return {"job_id": job_id, "alive": True, "status": "timeout"}

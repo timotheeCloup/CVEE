@@ -53,7 +53,9 @@ def api_to_gcs_cf(request):
         elif max_results:
             today = datetime.now().strftime("%Y-%m-%d")
             thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-            print(f"Quick test mode: last 30 days ({thirty_days_ago} → {today}), max {max_results} jobs")
+            print(
+                f"Quick test mode: last 30 days ({thirty_days_ago} → {today}), max {max_results} jobs"
+            )
             fetch_and_store(
                 ft_client_id=config["FT_CLIENT_ID"],
                 ft_client_secret=config["FT_CLIENT_SECRET"],

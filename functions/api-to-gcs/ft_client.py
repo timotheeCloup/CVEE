@@ -35,7 +35,9 @@ def get_ft_token(ft_client_id, ft_client_secret):
         return None
 
 
-def _build_params(start_index, page_size, sort, niveau_formation, publiee_depuis, min_date, max_date):
+def _build_params(
+    start_index, page_size, sort, niveau_formation, publiee_depuis, min_date, max_date
+):
     params = {
         "range": f"{start_index}-{start_index + page_size - 1}",
         "sort": sort,
@@ -78,8 +80,13 @@ def fetch_jobs_data(
 
     while start_index < max_index:
         params = _build_params(
-            start_index, page_size, sort, niveau_formation,
-            publiee_depuis, date_min, date_max,
+            start_index,
+            page_size,
+            sort,
+            niveau_formation,
+            publiee_depuis,
+            date_min,
+            date_max,
         )
         try:
             response = requests.get(FT_API_URL, headers=headers, params=params, timeout=60)
