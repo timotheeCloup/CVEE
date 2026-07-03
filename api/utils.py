@@ -4,10 +4,9 @@ import re
 import time
 from typing import Any
 
-import psycopg2
 import structlog
 from dotenv import load_dotenv
-from psycopg2 import pool
+from psycopg_pool import AsyncConnectionPool
 from pypdf import PdfReader
 
 logger: Any = structlog.get_logger()
@@ -32,34 +31,21 @@ MAP_FROM_MAX: float = EMBEDDING_WEIGHT * 0.60 + FTS_WEIGHT * 0.10
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
 
-_db_pool: Any = None
+_db_pool: AsyncConnectionPool | None = None
 
 
-def _get_pool() -> Any:
+async def _get_pool() -> AsyncConnectionPool:
     global _db_pool
     if _db_pool is None and DB_HOST:
-        _db_pool = pool.ThreadedConnectionPool(
-            1, 5, host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT
+        _db_pool = AsyncConnectionPool(
+            conninfo=f"host={DB_HOST} dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD} port={DB_PORT}",
+            min_size=1,
+            max_size=5,
+            open=True,
         )
+    if _db_pool is None:
+        raise RuntimeError("No DB pool available (DB_HOST not set)")
     return _db_pool
-
-
-def db_connection() -> Any:
-    """Get a connection from the pool (or create one ad-hoc if no pool)"""
-    p = _get_pool()
-    if p:
-        return p.getconn()
-    return psycopg2.connect(
-        host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT
-    )
-
-
-def db_release(conn: Any) -> None:
-    p = _get_pool()
-    if p:
-        p.putconn(conn)
-    else:
-        conn.close()
 
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
@@ -104,7 +90,7 @@ def _build_fts_weights_literal() -> str:
     return "{" + ", ".join(str(w) for w in weights) + "}"
 
 
-def search_jobs_vector_hybrid(
+async def search_jobs_vector_hybrid(
     embedding: list[float], cv_text_fts: str, cv_text_orig: str
 ) -> list[dict[str, Any]]:
     """
@@ -115,14 +101,12 @@ def search_jobs_vector_hybrid(
     """
     t_start = time.time()
 
-    conn = db_connection()
-    try:
-        cur = conn.cursor()
+    pool = await _get_pool()
+    async with pool.connection() as conn:
         t_conn = time.time()
         logger.info("db_connection", duration=round(t_conn - t_start, 3))
         logger.info("fts_prep", fts_chars=len(cv_text_fts), embedding_dim=len(embedding))
 
-        # Build French FTS query
         fts_terms = cv_text_fts.split()[:1000]
         tsquery = " | ".join(f"'{term}'" for term in fts_terms) if fts_terms else ""
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
@@ -155,25 +139,23 @@ def search_jobs_vector_hybrid(
         LIMIT %s;
         """
 
-        cur.execute(
-            sql,
-            (
-                embedding_str,
-                fts_weights_literal,
-                tsquery,
-                EMBEDDING_WEIGHT,
-                embedding_str,
-                FTS_WEIGHT,
-                fts_weights_literal,
-                tsquery,
-                tsquery,
-                TOP_K,
-            ),
-        )
-        results = cur.fetchall()
-    finally:
-        cur.close()
-        db_release(conn)
+        async with conn.cursor() as cur:
+            await cur.execute(
+                sql,
+                (
+                    embedding_str,
+                    fts_weights_literal,
+                    tsquery,
+                    EMBEDDING_WEIGHT,
+                    embedding_str,
+                    FTS_WEIGHT,
+                    fts_weights_literal,
+                    tsquery,
+                    tsquery,
+                    TOP_K,
+                ),
+            )
+            results = await cur.fetchall()
 
     t_query = time.time()
     logger.info("query_execution", duration=round(t_query - t_conn, 3), results=len(results))
