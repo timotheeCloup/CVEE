@@ -1,0 +1,18 @@
+{
+    "python-envs.pythonProjects": [],
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/__pycache__/**": true,
+        "**/.pytest_cache/**": true,
+        "**/node_modules/**": true,
+        "**/.venv/**": true,
+        "**/venv/**": true,
+        "**/*.egg-info/**": true,
+        "**/dist/**": true,
+        "**/build/**": true,
+        "**/.mypy_cache/**": true,
+        "**/.vscode/**": true
+    },
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticsMode": "workspace"
+}

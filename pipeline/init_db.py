@@ -1,4 +1,6 @@
+import argparse
 import os
+import sys
 
 import psycopg2
 from dotenv import load_dotenv
@@ -81,6 +83,20 @@ CREATE TABLE IF NOT EXISTS jobs_gold (
 );
 """
 
+parser = argparse.ArgumentParser(description="Initialize CVEE database schema")
+parser.add_argument(
+    "--force",
+    action="store_true",
+    help="Allow DROP TABLE CASCADE (destroys all data before recreating)",
+)
+args = parser.parse_args()
+
+if not args.force:
+    print("This script will DROP and recreate all tables (destructive).")
+    print("Run with --force if you really want to proceed:")
+    print(f"  python {__file__} --force")
+    sys.exit(1)
+
 # 3. Connection and Execution
 try:
     conn = psycopg2.connect(
@@ -96,7 +112,7 @@ try:
     cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
     print("Extension pgvector created.")
 
-    # Create the tables
+    # Drop and create the tables
     cur.execute("DROP TABLE IF EXISTS jobs_silver CASCADE;")
     cur.execute("DROP TABLE IF EXISTS jobs_gold CASCADE;")
     cur.execute(CREATE_SILVER_TABLE)

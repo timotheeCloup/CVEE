@@ -164,7 +164,7 @@ def embed_cv_and_search(cv_text: str, t_api_start: float | None = None) -> list[
 async def embed_cv_and_search_async(
     cv_text: str, t_api_start: float | None = None
 ) -> list[dict[str, Any]]:
-    """Async wrapper: blocking search in thread + async link verification."""
+    """Async wrapper: search + link verification."""
     top_jobs = await asyncio.to_thread(embed_cv_and_search, cv_text, t_api_start)
     verified_jobs = await filter_dead_jobs(top_jobs)
     return verified_jobs
