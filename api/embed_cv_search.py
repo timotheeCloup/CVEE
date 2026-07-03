@@ -123,7 +123,9 @@ async def filter_dead_jobs(
     return filtered_jobs
 
 
-def embed_cv_and_search(cv_text: str, t_api_start: float | None = None) -> list[dict[str, Any]]:
+async def embed_cv_and_search(
+    cv_text: str, t_api_start: float | None = None
+) -> list[dict[str, Any]]:
     """
     Search jobs using hybrid FTS + embedding approach.
 
@@ -146,12 +148,12 @@ def embed_cv_and_search(cv_text: str, t_api_start: float | None = None) -> list[
     )
 
     # Generate embedding (multilingual model handles French natively)
-    embedding: list[float] = _get_model().encode(cv_text).tolist()
+    embedding: list[float] = (await asyncio.to_thread(_get_model().encode, cv_text)).tolist()
     t2 = time.time()
     logger.info("embedding", duration=round(t2 - t1, 2), dim=len(embedding))
 
     # Hybrid search
-    top_jobs: list[dict[str, Any]] = search_jobs_vector_hybrid(
+    top_jobs: list[dict[str, Any]] = await search_jobs_vector_hybrid(
         embedding=embedding, cv_text_fts=cv_text_for_fts, cv_text_orig=cv_text
     )
     t3 = time.time()
@@ -165,6 +167,6 @@ async def embed_cv_and_search_async(
     cv_text: str, t_api_start: float | None = None
 ) -> list[dict[str, Any]]:
     """Async wrapper: search + link verification."""
-    top_jobs = await asyncio.to_thread(embed_cv_and_search, cv_text, t_api_start)
+    top_jobs = await embed_cv_and_search(cv_text, t_api_start)
     verified_jobs = await filter_dead_jobs(top_jobs)
     return verified_jobs
