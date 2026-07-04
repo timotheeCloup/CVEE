@@ -211,7 +211,7 @@ async def test_embed_cv_and_search_returns_results() -> None:
                 "123ABC",
                 0.72,
                 0.08,
-                0.02,
+                0.80,
                 "Développeur Python",
                 "TechCorp",
                 "Paris",

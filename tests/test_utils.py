@@ -95,7 +95,7 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         "123ABC",
         0.72,
         0.08,
-        0.02,
+        0.80,
         "Développeur Python",
         "TechCorp",
         "Paris",
