@@ -16,8 +16,8 @@ CANDIDATE_POOL: int = 1000
 # Linear hybrid scoring weights
 EMBED_WEIGHT: int = 1
 FTS_WEIGHT: int = 4
-MAP_FROM_MIN: float = 0.2
-MAP_FROM_MAX: float = 0.8
+MAP_FROM_MIN: float = 0.3
+MAP_FROM_MAX: float = 3.5
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
