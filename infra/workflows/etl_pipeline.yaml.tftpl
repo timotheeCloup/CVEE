@@ -1,7 +1,7 @@
 # ── CVEE ETL Pipeline Workflow ──
-# 1. Fetch API → GCS raw
-# 2. Wait 15 min (Databricks cron runs at 21:30, processes silver→gold→export)
-# 3. Check if Databricks produced today's output → skip GCP processing if yes
+# 1. Fetch API → GCS raw  (~30s)
+# 2. Wait 30 min (Databricks cron at 21:01 runs cleanup→silver→gold→export)
+# 3. Check if Databricks produced today's silver+gold in GCS → skip processing if yes
 # 4. Ingest to Supabase
 main:
   steps:

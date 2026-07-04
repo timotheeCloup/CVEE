@@ -64,15 +64,28 @@ cf-all: cf-prep cf-api cf-pipeline cf-ingest
 pipeline days="1":
     curl -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/pipeline-cf?days={{days}}"
 
-# Fetch jobs from FT API (quick test, max 100)
-ingestion:
+# Manually trigger each CF independently (for testing):
+# Step 1 — fetch FT API → GCS raw
+etl-fetch:
     curl -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/api-to-gcs-cf?max_results=100"
 
-# Sync GCS → Supabase + cleanup dead offers
-ingest:
+# Step 2 — run bronze→silver→gold (bypasses Databricks check)
+etl-process days="1":
+    curl -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/pipeline-cf?days={{days}}"
+
+# Step 3 — sync GCS → Supabase
+etl-ingest:
     curl -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/ingest-db-cf"
 
-# Trigger the full ETL Cloud Workflow (api-to-gcs → pipeline → ingest-db)
+# All 3 steps sequentially (sans sleep, sans Databricks check)
+etl-full:
+    just etl-fetch
+    just etl-process
+    just etl-ingest
+
+# Trigger the full ETL Cloud Workflow (api-to-gcs → wait 30min → pipeline → ingest-db)
+# Databricks cron should be set to 21:01 UTC (runs during the 30min sleep).
+# If Databricks wrote silver+gold to GCS, pipeline-cf skips automatically.
 workflow:
     gcloud workflows executions run cvee-etl-pipeline --location={{REGION}} --project={{PROJECT}}
 
