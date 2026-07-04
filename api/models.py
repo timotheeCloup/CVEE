@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class JobResult(BaseModel):
@@ -15,6 +15,11 @@ class JobResult(BaseModel):
     matching_terms: list[str] = []
 
     model_config = {"from_attributes": True}
+
+    @field_validator("intitule", "entreprise", "lieu", "type_contrat", "date_creation", mode="before")
+    @classmethod
+    def _none_to_empty(cls, v: object) -> str:
+        return v if isinstance(v, str) else ""
 
 
 class EmbedResponse(BaseModel):
