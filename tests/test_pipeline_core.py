@@ -227,6 +227,7 @@ async def test_run_pipeline_basic() -> None:
     mock_model.encode = MagicMock(return_value=np.array([[0.1] * 384, [0.2] * 384]))
 
     with (
+        patch("core._databricks_already_produced", return_value=False),
         patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
         patch("core.pl.read_parquet", return_value=test_df),
         patch("core.SentenceTransformer", return_value=mock_model),
@@ -275,6 +276,7 @@ async def test_run_pipeline_with_duplicates() -> None:
     mock_model.encode = MagicMock(return_value=np.array([[0.1] * 384, [0.2] * 384]))
 
     with (
+        patch("core._databricks_already_produced", return_value=False),
         patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
         patch("core.pl.read_parquet", return_value=test_df),
         patch("core.SentenceTransformer", return_value=mock_model),
@@ -310,6 +312,7 @@ async def test_run_pipeline_max_jobs() -> None:
     mock_model.encode = MagicMock(return_value=np.array([[0.1] * 384] * 3))
 
     with (
+        patch("core._databricks_already_produced", return_value=False),
         patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
         patch("core.pl.read_parquet", return_value=test_df),
         patch("core.SentenceTransformer", return_value=mock_model),
