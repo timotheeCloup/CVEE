@@ -7,12 +7,12 @@ class JobResult(BaseModel):
     embedding_score: float
     fts_score: float
     combined_score: float
-    intitule: str
-    entreprise: str
-    lieu: str
-    type_contrat: str
-    date_creation: str
-    matching_terms: list[str]
+    intitule: str = ""
+    entreprise: str = ""
+    lieu: str = ""
+    type_contrat: str = ""
+    date_creation: str = ""
+    matching_terms: list[str] = []
 
     model_config = {"from_attributes": True}
 
