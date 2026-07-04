@@ -24,6 +24,12 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+      - name: mypy
+        run: uv run mypy api/
+
+      - name: bandit
+        run: uv run bandit -r api/ functions/ -x functions/pipeline/core.py --severity-level medium
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -56,3 +62,29 @@ jobs:
             sleep 2
           done
           echo "FAIL"; docker logs api; exit 1
+
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build UI Docker image
+        run: docker build -t cvee-ui:ci ui/
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive infra/
+
+      - name: Terraform init
+        run: terraform -chdir=infra init -backend=false
+
+      - name: Terraform validate
+        run: terraform -chdir=infra validate
