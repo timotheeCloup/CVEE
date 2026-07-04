@@ -11,7 +11,7 @@ from pypdf import PdfReader
 logger: Any = structlog.get_logger()
 
 TOP_K: int = 100
-CANDIDATE_POOL: int = 500
+CANDIDATE_POOL: int = 1000
 
 # Reciprocal Rank Fusion
 RRF_K: int = 60
