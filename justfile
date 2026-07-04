@@ -83,6 +83,17 @@ etl-full:
     just etl-process
     just etl-ingest
 
+# Check if Databricks produced today's silver+gold in GCS
+check-databricks:
+    @today=$$(date +%Y%m%d); \
+    silver=$$(gsutil ls "gs://cvee-20260208/jobs_silver/jobs_silver_$${today}*" 2>/dev/null | wc -l); \
+    gold=$$(gsutil ls "gs://cvee-20260208/jobs_gold/jobs_gold_$${today}*" 2>/dev/null | wc -l); \
+    echo "Databricks output today:"; \
+    echo "  Silver files: $$silver"; \
+    echo "  Gold files:   $$gold"; \
+    [ "$$silver" -gt 0 ] && [ "$$gold" -gt 0 ] && echo "  → Status: DONE" || echo "  → Status: not yet"
+# Databricks cron should be set to 21:01 UTC (runs during the 30min sleep).
+# If Databricks wrote silver+gold to GCS, pipeline-cf skips automatically.
 # Trigger the full ETL Cloud Workflow (api-to-gcs → wait 30min → pipeline → ingest-db)
 # Databricks cron should be set to 21:01 UTC (runs during the 30min sleep).
 # If Databricks wrote silver+gold to GCS, pipeline-cf skips automatically.
