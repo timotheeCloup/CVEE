@@ -51,6 +51,8 @@ dev = [
     "python-multipart>=0.0.9",
     "pytest-playwright>=0.7.0",
     "streamlit>=1.20.0",
+    "alembic>=1.18.5",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [tool.ruff]
