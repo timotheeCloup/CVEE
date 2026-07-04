@@ -66,10 +66,10 @@ def mock_search_results() -> list[dict]:
     return [
         {
             "job_id": "123ABC",
-            "similarity_score": 0.61,
+            "similarity_score": 0.85,
             "embedding_score": 0.72,
             "fts_score": 0.08,
-            "combined_score": 0.02,
+            "combined_score": 0.80,
             "intitule": "Développeur Python Senior",
             "entreprise": "TechCorp",
             "lieu": "Paris",
@@ -79,10 +79,10 @@ def mock_search_results() -> list[dict]:
         },
         {
             "job_id": "456DEF",
-            "similarity_score": 0.46,
+            "similarity_score": 0.72,
             "embedding_score": 0.60,
             "fts_score": 0.05,
-            "combined_score": 0.015,
+            "combined_score": 0.65,
             "intitule": "Data Engineer",
             "entreprise": "DataInc",
             "lieu": "Lyon",
