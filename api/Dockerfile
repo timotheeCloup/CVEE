@@ -29,6 +29,8 @@ ENV HF_HOME=/app/models_cache
 ENV PORT=8080
 
 WORKDIR /app
+ARG CACHEBUST=0
+RUN echo "bust=${CACHEBUST}"
 COPY app.py embed_cv_search.py utils.py models.py config.py stopwords.json ./
 
 USER app
