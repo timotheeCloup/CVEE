@@ -221,8 +221,15 @@ async def search_jobs_vector_hybrid(
 
     # Format results for API response
     processed_results = []
+    if hybrid_results:
+        score_min = min(r["combined_score"] for r in hybrid_results)
+        score_max = max(r["combined_score"] for r in hybrid_results)
+        if score_max - score_min < 0.01:
+            score_max = score_min + 0.5
+    else:
+        score_min, score_max = 0.0, 1.0
     for job in hybrid_results:
-        mapped = linear_mapping(job["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.15, 0.85)
+        mapped = linear_mapping(job["combined_score"], score_min, score_max, 0.15, 0.85)
         clamped = max(0.0, min(1.0, mapped))
         processed_results.append(
             {
