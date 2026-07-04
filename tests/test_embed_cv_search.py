@@ -146,8 +146,6 @@ async def test_filter_dead_jobs_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_verify_job_link_unexpected_error() -> None:
-    import asyncio
-
     mock_response = AsyncMock()
     mock_response.status = 200
     mock_response.__aenter__ = AsyncMock(side_effect=RuntimeError("unexpected"))
