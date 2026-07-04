@@ -12,12 +12,9 @@ logger: Any = structlog.get_logger()
 
 TOP_K: int = 100
 
-# Hybrid search weights
-EMBEDDING_WEIGHT: int = 1
-FTS_WEIGHT: int = 4
-
-MAP_FROM_MIN: float = EMBEDDING_WEIGHT * 0.30
-MAP_FROM_MAX: float = EMBEDDING_WEIGHT * 0.60 + FTS_WEIGHT * 0.10
+# Reciprocal Rank Fusion constant (standard value)
+RRF_K: int = 60
+RRF_MAX: float = 2.0 / (RRF_K + 1)
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
@@ -85,10 +82,12 @@ async def search_jobs_vector_hybrid(
     embedding: list[float], cv_text_fts: str, cv_text_orig: str
 ) -> list[dict[str, Any]]:
     """
-    Hybrid job search combining FTS (French) and semantic embedding (English).
+    Hybrid job search combining FTS + embedding via Reciprocal Rank Fusion.
 
-    Returns top 100 jobs sorted by combined score:
-        EMBEDDING_WEIGHT * embedding_score + FTS_WEIGHT * fts_score
+    Ranks jobs independently by embedding similarity and FTS relevance,
+    then fuses ranks using RRF: score(d) = 1/(k + rank_embed) + 1/(k + rank_fts).
+
+    Returns top 100 jobs sorted by RRF combined score.
     """
     t_start = time.time()
 
@@ -105,27 +104,33 @@ async def search_jobs_vector_hybrid(
 
         sql = """
         SELECT
-            jg.job_id,
-            (1 - (jg.embedding <-> %s))::float8 as embedding_score,
-            COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
-            (%s * (1 - (jg.embedding <-> %s))::float8 +
-             %s * COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8)::float8 as combined_score,
-            js.intitule,
-            js.entreprise->>'nom' AS entreprise,
-            js.lieuTravail->>'libelle' AS lieu,
-            js.typeContratLibelle,
-            js.dateCreation,
-            ts_headline('french',
-                js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
-                COALESCE((SELECT string_agg(elem->>'libelle', ' ')
-                          FROM jsonb_array_elements(js.competences) AS elem), '') || ' ' ||
-                COALESCE((SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
-                          FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
-                to_tsquery('french', %s),
-                'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline
-        FROM jobs_gold jg
-        JOIN jobs_silver js ON jg.job_id = js.job_id
-        WHERE jg.fts_tokens IS NOT NULL
+            job_id, embedding_score, fts_score, combined_score,
+            intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
+        FROM (
+            SELECT
+                jg.job_id,
+                (1 - (jg.embedding <-> %s))::float8 as embedding_score,
+                COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
+                (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank))::float8 as combined_score,
+                js.intitule,
+                js.entreprise->>'nom' AS entreprise,
+                js.lieuTravail->>'libelle' AS lieu,
+                js.typeContratLibelle,
+                js.dateCreation,
+                ts_headline('french',
+                    js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
+                    COALESCE((SELECT string_agg(elem->>'libelle', ' ')
+                              FROM jsonb_array_elements(js.competences) AS elem), '') || ' ' ||
+                    COALESCE((SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
+                              FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
+                    to_tsquery('french', %s),
+                    'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline,
+                ROW_NUMBER() OVER (ORDER BY (1 - (jg.embedding <-> %s)) DESC) as embed_rank,
+                ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0) DESC) as fts_rank
+            FROM jobs_gold jg
+            JOIN jobs_silver js ON jg.job_id = js.job_id
+            WHERE jg.fts_tokens IS NOT NULL
+        ) ranked
         ORDER BY combined_score DESC
         LIMIT %s;
         """
@@ -137,11 +142,11 @@ async def search_jobs_vector_hybrid(
                     embedding_str,
                     fts_weights_literal,
                     tsquery,
-                    EMBEDDING_WEIGHT,
-                    embedding_str,
-                    FTS_WEIGHT,
-                    fts_weights_literal,
+                    RRF_K,
+                    RRF_K,
                     tsquery,
+                    embedding_str,
+                    fts_weights_literal,
                     tsquery,
                     TOP_K,
                 ),
@@ -188,10 +193,8 @@ async def search_jobs_vector_hybrid(
     # Summary stats
     fts_non_zero = sum(1 for r in hybrid_results if r["fts_score"] > 0)
     logger.info(
-        "search_weights",
-        embedding_pct=EMBEDDING_WEIGHT * 100,
-        fts_pct=FTS_WEIGHT * 100,
-        fts_levels=FTS_WEIGHTS,
+        "search_stats",
+        rrf_k=RRF_K,
         fts_non_zero=fts_non_zero,
         total=len(hybrid_results),
     )
@@ -202,14 +205,14 @@ async def search_jobs_vector_hybrid(
             "top_result",
             embedding_score=round(top["embedding_score"], 4),
             fts_score=round(top["fts_score"], 4),
-            combined=round(top["combined_score"], 4),
+            combined=round(top["combined_score"], 6),
             intitule=top["intitule"][:40],
         )
 
     # Format results for API response
     processed_results = []
     for job in hybrid_results:
-        mapped = linear_mapping(job["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.15, 0.85)
+        mapped = linear_mapping(job["combined_score"], 0, RRF_MAX, 0, 1)
         clamped = max(0.0, min(1.0, mapped))
         processed_results.append(
             {
