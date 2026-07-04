@@ -11,6 +11,7 @@ from pypdf import PdfReader
 logger: Any = structlog.get_logger()
 
 TOP_K: int = 100
+CANDIDATE_POOL: int = 1500
 
 # Reciprocal Rank Fusion constant (standard value)
 RRF_K: int = 60
@@ -103,13 +104,30 @@ async def search_jobs_vector_hybrid(
         fts_weights_literal = _build_fts_weights_literal()
 
         sql = """
-        SELECT
-            job_id, embedding_score, fts_score,
-            (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank))::float8 as combined_score,
-            intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
-        FROM (
+        WITH embedding_candidates AS (
+            SELECT jg.job_id,
+                   (1 - (jg.embedding <-> %s))::float8 as embedding_score
+            FROM jobs_gold jg
+            WHERE jg.fts_tokens IS NOT NULL
+            ORDER BY embedding_score DESC
+            LIMIT %s
+        ),
+        fts_candidates AS (
+            SELECT jg.job_id,
+                   COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score
+            FROM jobs_gold jg
+            WHERE jg.fts_tokens IS NOT NULL
+            ORDER BY fts_score DESC
+            LIMIT %s
+        ),
+        all_candidates AS (
+            SELECT job_id FROM embedding_candidates
+            UNION
+            SELECT job_id FROM fts_candidates
+        ),
+        ranked AS (
             SELECT
-                jg.job_id,
+                c.job_id,
                 (1 - (jg.embedding <-> %s))::float8 as embedding_score,
                 COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
                 js.intitule,
@@ -127,10 +145,15 @@ async def search_jobs_vector_hybrid(
                     'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline,
                 ROW_NUMBER() OVER (ORDER BY (1 - (jg.embedding <-> %s)) DESC) as embed_rank,
                 ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0) DESC) as fts_rank
-            FROM jobs_gold jg
+            FROM all_candidates c
+            JOIN jobs_gold jg ON c.job_id = jg.job_id
             JOIN jobs_silver js ON jg.job_id = js.job_id
-            WHERE jg.fts_tokens IS NOT NULL
-        ) ranked
+        )
+        SELECT
+            job_id, embedding_score, fts_score,
+            (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank))::float8 as combined_score,
+            intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
+        FROM ranked
         ORDER BY combined_score DESC
         LIMIT %s;
         """
@@ -139,16 +162,21 @@ async def search_jobs_vector_hybrid(
             await cur.execute(
                 sql,
                 (
-                    RRF_K,
-                    RRF_K,
-                    embedding_str,
-                    fts_weights_literal,
-                    tsquery,
-                    tsquery,
-                    embedding_str,
-                    fts_weights_literal,
-                    tsquery,
-                    TOP_K,
+                    embedding_str,        # embedding_candidates
+                    CANDIDATE_POOL,       # embedding_candidates LIMIT
+                    fts_weights_literal,  # fts_candidates
+                    tsquery,              # fts_candidates
+                    CANDIDATE_POOL,       # fts_candidates LIMIT
+                    embedding_str,        # ranked embedding_score
+                    fts_weights_literal,  # ranked fts_score
+                    tsquery,              # ranked fts_score query
+                    tsquery,              # ts_headline
+                    embedding_str,        # embed_rank window
+                    fts_weights_literal,  # fts_rank window weights
+                    tsquery,              # fts_rank window query
+                    RRF_K,                # outer combined_score
+                    RRF_K,                # outer combined_score
+                    TOP_K,                # outer LIMIT
                 ),
             )
             results = await cur.fetchall()
