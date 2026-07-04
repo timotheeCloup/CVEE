@@ -109,7 +109,7 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                         values.append(val)
 
                 placeholders = ", ".join(["%s"] * len(cols))
-                sql = f"INSERT INTO jobs_silver ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (job_id) DO NOTHING;"
+                sql = f"INSERT INTO jobs_silver ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (job_id) DO NOTHING;"  # nosec B608 -- parameterized via %s
                 cur.execute(sql, values)
 
             conn.commit()

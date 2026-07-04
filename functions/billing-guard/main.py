@@ -20,7 +20,7 @@ def _get_token():
         "?scopes=https://www.googleapis.com/auth/cloud-platform"
     )
     req.add_header("Metadata-Flavor", "Google")
-    with urlopen(req, timeout=5) as resp:
+    with urlopen(req, timeout=5) as resp:  # nosec B310 -- GCP metadata endpoint only
         return json.loads(resp.read().decode("utf-8"))["access_token"]
 
 
@@ -32,7 +32,7 @@ def _api_request(method, path, body=None):
     req.add_header("Authorization", f"Bearer {_get_token()}")
     req.add_header("Content-Type", "application/json")
     try:
-        with urlopen(req, timeout=15) as resp:
+        with urlopen(req, timeout=15) as resp:  # nosec B310 -- GCP billing API, authenticated
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         detail = e.read().decode("utf-8")[:300] if e.fp else str(e)

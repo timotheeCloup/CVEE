@@ -145,7 +145,7 @@ def delete_dead_jobs(dead_ids: set, db_host, db_port, db_user, db_password, db_n
         # ON DELETE CASCADE will automatically delete from jobs_gold (child table)
         dead_ids_list = list(dead_ids)
         placeholders = ",".join(["%s"] * len(dead_ids_list))
-        delete_sql = f"DELETE FROM jobs_silver WHERE job_id IN ({placeholders});"
+        delete_sql = f"DELETE FROM jobs_silver WHERE job_id IN ({placeholders});"  # nosec B608 -- parameterized via %s
 
         cur.execute(delete_sql, dead_ids_list)
         deleted_count = cur.rowcount
