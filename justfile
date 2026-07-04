@@ -14,6 +14,12 @@ deploy-api:
     docker push {{AR}}/cvee-api:latest
     gcloud run deploy cvee-api --image {{AR}}/cvee-api:latest --region {{CR_REGION}} --project {{PROJECT}} --allow-unauthenticated
 
+# Rebuild API from scratch (--no-cache, bypass Docker layer caching)
+rebuild-api:
+    docker build --no-cache -t {{AR}}/cvee-api:latest -f api/Dockerfile api/
+    docker push {{AR}}/cvee-api:latest
+    gcloud run deploy cvee-api --image {{AR}}/cvee-api:latest --region {{CR_REGION}} --project {{PROJECT}} --allow-unauthenticated
+
 # Deploy UI to Cloud Run (Docker build + push + deploy)
 deploy-ui:
     docker build -t {{AR}}/cvee-ui:latest -f ui/Dockerfile ui/
