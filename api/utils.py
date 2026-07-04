@@ -104,14 +104,14 @@ async def search_jobs_vector_hybrid(
 
         sql = """
         SELECT
-            job_id, embedding_score, fts_score, combined_score,
+            job_id, embedding_score, fts_score,
+            (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank))::float8 as combined_score,
             intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
         FROM (
             SELECT
                 jg.job_id,
                 (1 - (jg.embedding <-> %s))::float8 as embedding_score,
                 COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
-                (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank))::float8 as combined_score,
                 js.intitule,
                 js.entreprise->>'nom' AS entreprise,
                 js.lieuTravail->>'libelle' AS lieu,
@@ -139,11 +139,11 @@ async def search_jobs_vector_hybrid(
             await cur.execute(
                 sql,
                 (
+                    RRF_K,
+                    RRF_K,
                     embedding_str,
                     fts_weights_literal,
                     tsquery,
-                    RRF_K,
-                    RRF_K,
                     tsquery,
                     embedding_str,
                     fts_weights_literal,
