@@ -29,7 +29,7 @@ ENV HF_HOME=/app/models_cache
 ENV PORT=8080
 
 WORKDIR /app
-COPY app.py embed_cv_search.py utils.py stopwords.json ./
+COPY app.py embed_cv_search.py utils.py models.py config.py stopwords.json ./
 
 USER app
 

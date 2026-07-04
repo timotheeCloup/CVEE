@@ -183,7 +183,9 @@ def run_pipeline(bucket_name, days=None, max_jobs=None):
     df = _deduplicate(df)
     total_after = df.height
     if total_before != total_after:
-        print(f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)")
+        print(
+            f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)"
+        )
     print(f"  {total_after} unique jobs loaded")
 
     if max_jobs and max_jobs < total_after:
@@ -193,7 +195,9 @@ def run_pipeline(bucket_name, days=None, max_jobs=None):
     print("2. Cleaning HTML...")
     if "description" in df.columns:
         df = df.with_columns(
-            pl.col("description").map_elements(clean_html, return_dtype=pl.String).alias("description_clean")
+            pl.col("description")
+            .map_elements(clean_html, return_dtype=pl.String)
+            .alias("description_clean")
         )
     else:
         df = df.with_columns(pl.lit("").alias("description_clean"))
