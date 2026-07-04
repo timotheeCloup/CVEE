@@ -11,11 +11,13 @@ from pypdf import PdfReader
 logger: Any = structlog.get_logger()
 
 TOP_K: int = 100
-CANDIDATE_POOL: int = 1500
+CANDIDATE_POOL: int = 500
 
-# Reciprocal Rank Fusion constant (standard value)
+# Reciprocal Rank Fusion
 RRF_K: int = 60
-RRF_MAX: float = 2.0 / (RRF_K + 1)
+EMBED_RRF_WEIGHT: int = 3
+FTS_RRF_WEIGHT: int = 1
+RRF_MAX: float = (EMBED_RRF_WEIGHT + FTS_RRF_WEIGHT) / (RRF_K + 1)
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
@@ -83,12 +85,12 @@ async def search_jobs_vector_hybrid(
     embedding: list[float], cv_text_fts: str, cv_text_orig: str
 ) -> list[dict[str, Any]]:
     """
-    Hybrid job search combining FTS + embedding via Reciprocal Rank Fusion.
+    Hybrid job search: embedding-first with weighted Reciprocal Rank Fusion.
 
-    Ranks jobs independently by embedding similarity and FTS relevance,
-    then fuses ranks using RRF: score(d) = 1/(k + rank_embed) + 1/(k + rank_fts).
+    Pre-selects top candidates by embedding similarity, then scores
+    candidates via weighted RRF: 3/(k + embed_rank) + 1/(k + fts_rank).
 
-    Returns top 100 jobs sorted by RRF combined score.
+    Returns top 100 jobs sorted by weighted RRF score.
     """
     t_start = time.time()
 
@@ -151,7 +153,7 @@ async def search_jobs_vector_hybrid(
         )
         SELECT
             job_id, embedding_score, fts_score,
-            (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank))::float8 as combined_score,
+            (%s::float8 / (%s + embed_rank) + %s::float8 / (%s + fts_rank))::float8 as combined_score,
             intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
         FROM ranked
         ORDER BY combined_score DESC
@@ -174,8 +176,10 @@ async def search_jobs_vector_hybrid(
                     embedding_str,        # embed_rank window
                     fts_weights_literal,  # fts_rank window weights
                     tsquery,              # fts_rank window query
-                    RRF_K,                # outer combined_score
-                    RRF_K,                # outer combined_score
+                    EMBED_RRF_WEIGHT,     # outer combined_score embed weight
+                    RRF_K,                # outer combined_score embed k
+                    FTS_RRF_WEIGHT,       # outer combined_score fts weight
+                    RRF_K,                # outer combined_score fts k
                     TOP_K,                # outer LIMIT
                 ),
             )
