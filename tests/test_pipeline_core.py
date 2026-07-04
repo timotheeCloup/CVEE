@@ -2,7 +2,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pandas as pd
+import polars as pl
 import pytest
 
 
@@ -150,7 +150,7 @@ async def test_serialize_json_col_converts_numpy() -> None:
 async def test_deduplicate_removes_duplicates() -> None:
     from core import _deduplicate
 
-    df = pd.DataFrame({"id": ["A", "B", "A", "C", "B"], "value": [1, 2, 3, 4, 5]})
+    df = pl.DataFrame({"id": ["A", "B", "A", "C", "B"], "value": [1, 2, 3, 4, 5]})
     result = _deduplicate(df)
     assert len(result) == 3
     assert list(result["id"]) == ["A", "B", "C"]
@@ -160,7 +160,7 @@ async def test_deduplicate_removes_duplicates() -> None:
 async def test_deduplicate_no_id_column() -> None:
     from core import _deduplicate
 
-    df = pd.DataFrame({"other_col": [1, 2, 3]})
+    df = pl.DataFrame({"other_col": [1, 2, 3]})
     result = _deduplicate(df)
     assert len(result) == 3
 
@@ -212,7 +212,7 @@ async def test_run_pipeline_basic() -> None:
     mock_fs.glob = MagicMock(return_value=["gs://bucket/jobs_raw/test.parquet"])
     mock_fs.info = MagicMock(return_value={"updated": "2025-06-01T00:00:00Z"})
 
-    test_df = pd.DataFrame(
+    test_df = pl.DataFrame(
         {
             "id": ["J1", "J2"],
             "intitule": ["Dev Python", "Data Engineer"],
@@ -228,9 +228,9 @@ async def test_run_pipeline_basic() -> None:
 
     with (
         patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
-        patch("core.pd.read_parquet", return_value=test_df),
+        patch("core.pl.read_parquet", return_value=test_df),
         patch("core.SentenceTransformer", return_value=mock_model),
-        patch.object(pd.DataFrame, "to_parquet") as mock_to_parquet,
+        patch.object(pl.DataFrame, "write_parquet") as mock_write,
     ):
         from core import run_pipeline
 
@@ -238,7 +238,7 @@ async def test_run_pipeline_basic() -> None:
         assert silver is not None
         assert gold is not None
         assert mock_model.encode.called
-        assert mock_to_parquet.call_count == 2
+        assert mock_write.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -260,7 +260,7 @@ async def test_run_pipeline_with_duplicates() -> None:
     mock_fs.glob = MagicMock(return_value=["gs://bucket/jobs_raw/test.parquet"])
     mock_fs.info = MagicMock(return_value={"updated": "2025-06-01T00:00:00Z"})
 
-    test_df = pd.DataFrame(
+    test_df = pl.DataFrame(
         {
             "id": ["J1", "J1", "J2"],
             "intitule": ["Dev", "Dev", "Data"],
@@ -276,9 +276,9 @@ async def test_run_pipeline_with_duplicates() -> None:
 
     with (
         patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
-        patch("core.pd.read_parquet", return_value=test_df),
+        patch("core.pl.read_parquet", return_value=test_df),
         patch("core.SentenceTransformer", return_value=mock_model),
-        patch.object(pd.DataFrame, "to_parquet"),
+        patch.object(pl.DataFrame, "write_parquet"),
     ):
         from core import run_pipeline
 
@@ -295,7 +295,7 @@ async def test_run_pipeline_max_jobs() -> None:
     mock_fs.glob = MagicMock(return_value=["gs://bucket/jobs_raw/test.parquet"])
     mock_fs.info = MagicMock(return_value={"updated": "2025-06-01T00:00:00Z"})
 
-    test_df = pd.DataFrame(
+    test_df = pl.DataFrame(
         {
             "id": [f"J{i}" for i in range(10)],
             "intitule": ["Dev"] * 10,
@@ -311,9 +311,9 @@ async def test_run_pipeline_max_jobs() -> None:
 
     with (
         patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
-        patch("core.pd.read_parquet", return_value=test_df),
+        patch("core.pl.read_parquet", return_value=test_df),
         patch("core.SentenceTransformer", return_value=mock_model),
-        patch.object(pd.DataFrame, "to_parquet"),
+        patch.object(pl.DataFrame, "write_parquet"),
     ):
         from core import run_pipeline
 
