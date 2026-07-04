@@ -249,11 +249,11 @@ async def search_jobs_vector_hybrid(
                 "embedding_score": round(job["embedding_score"], 4),
                 "fts_score": round(job["fts_score"], 4),
                 "combined_score": round(job["combined_score"], 4),
-                "intitule": job["intitule"],
-                "entreprise": job["entreprise"],
-                "lieu": job["lieu"],
-                "type_contrat": job["type_contrat"],
-                "date_creation": job["date_creation"],
+            "intitule": job["intitule"] or "",
+            "entreprise": job["entreprise"] or "",
+            "lieu": job["lieu"] or "",
+            "type_contrat": job["type_contrat"] or "",
+            "date_creation": job["date_creation"] or "",
                 "matching_terms": job["keywords"],
             }
         )
