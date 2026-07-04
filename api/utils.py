@@ -206,33 +206,33 @@ async def search_jobs_vector_hybrid(
     )
 
     if hybrid_results:
-        r = hybrid_results[0]
+        top = hybrid_results[0]
         logger.info(
             "top_result",
-            embedding_score=round(r["embedding_score"], 4),
-            fts_score=round(r["fts_score"], 4),
-            combined=round(r["combined_score"], 4),
-            intitule=r["intitule"][:40],
+            embedding_score=round(top["embedding_score"], 4),
+            fts_score=round(top["fts_score"], 4),
+            combined=round(top["combined_score"], 4),
+            intitule=top["intitule"][:40],
         )
 
     # Format results for API response
     processed_results = []
-    for r in hybrid_results:
-        mapped = linear_mapping(r["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.15, 0.85)
+    for job in hybrid_results:
+        mapped = linear_mapping(job["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.15, 0.85)
         clamped = max(0.0, min(1.0, mapped))
         processed_results.append(
             {
-                "job_id": r["job_id"],
+                "job_id": job["job_id"],
                 "similarity_score": round(clamped, 2),
-                "embedding_score": round(r["embedding_score"], 4),
-                "fts_score": round(r["fts_score"], 4),
-                "combined_score": round(r["combined_score"], 4),
-                "intitule": r["intitule"],
-                "entreprise": r["entreprise"],
-                "lieu": r["lieu"],
-                "type_contrat": r["type_contrat"],
-                "date_creation": r["date_creation"],
-                "matching_terms": r["keywords"],
+                "embedding_score": round(job["embedding_score"], 4),
+                "fts_score": round(job["fts_score"], 4),
+                "combined_score": round(job["combined_score"], 4),
+                "intitule": job["intitule"],
+                "entreprise": job["entreprise"],
+                "lieu": job["lieu"],
+                "type_contrat": job["type_contrat"],
+                "date_creation": job["date_creation"],
+                "matching_terms": job["keywords"],
             }
         )
 
