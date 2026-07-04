@@ -13,19 +13,15 @@ RUN uv pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.12-slim AS runtime
 
-RUN groupadd -r app && useradd -r -g app app
-
 COPY --from=builder /opt/venv /opt/venv
 
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
-ENV HOME=/app
+ENV STREAMLIT_SERVER_HEADLESS=true
 
 WORKDIR /app
 COPY . .
-
-USER app
 
 EXPOSE 8080
 
