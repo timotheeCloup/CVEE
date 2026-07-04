@@ -15,8 +15,35 @@ logger: Any = structlog.get_logger()
 torch.set_num_threads(1)
 
 MODEL_NAME: str = "antoinelouis/french-me5-small"
+CHUNK_WORDS: int = 300
+CHUNK_OVERLAP: int = 50
 _device: str = "cpu"
 _model: Any = None
+
+
+def _encode_cv(cv_text: str) -> list[float]:
+    """Encode CV text, chunking long texts and mean-pooling embeddings.
+
+    The model has a 512-token context window. Long CVs are split into
+    overlapping word chunks, embedded separately, and averaged.
+    """
+    model = _get_model()
+    words = cv_text.split()
+    if len(words) <= CHUNK_WORDS:
+        return model.encode(cv_text).tolist()
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(words):
+        chunk = " ".join(words[start : start + CHUNK_WORDS])
+        chunks.append(chunk)
+        start += CHUNK_WORDS - CHUNK_OVERLAP
+
+    embeddings = model.encode(chunks)
+    import numpy as np
+
+    mean = np.mean(embeddings, axis=0)
+    return mean.tolist()
 
 
 def _get_model() -> Any:
@@ -155,8 +182,8 @@ async def embed_cv_and_search(
         after_stopwords=len(cv_text_for_fts),
     )
 
-    # Generate embedding (multilingual model handles French natively)
-    embedding: list[float] = (await asyncio.to_thread(_get_model().encode, cv_text)).tolist()
+    # Generate embedding with chunking for long CVs (model max 512 tokens)
+    embedding: list[float] = await asyncio.to_thread(_encode_cv, cv_text)
     t2 = time.time()
     logger.info("embedding", duration=round(t2 - t1, 2), dim=len(embedding))
 
