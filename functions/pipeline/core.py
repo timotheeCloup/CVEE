@@ -40,6 +40,14 @@ JSON_COLS = [
 
 
 def clean_html(text):
+    """Strip HTML tags and entities, collapse whitespace.
+
+    Args:
+        text: Raw text potentially containing HTML.
+
+    Returns:
+        Cleaned plain text string, or ``""`` if input is None/NaN.
+    """
     if text is None:
         return ""
     if isinstance(text, float) and pd.isna(text):
@@ -94,6 +102,15 @@ def _deep_to_list(obj):
 
 
 def serialize_json_col(val):
+    """Convert nested dict/list/ndarray to JSON string for JSONB compatibility.
+
+    Args:
+        val: Value to serialize (dict, list, ndarray, str, None).
+
+    Returns:
+        JSON string if val is a complex type, the same string if already str,
+        or None if val is None/NaN.
+    """
     if val is None:
         return None
     if isinstance(val, float) and pd.isna(val):

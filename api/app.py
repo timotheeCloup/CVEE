@@ -4,7 +4,11 @@ from typing import Any
 
 import structlog
 from embed_cv_search import embed_cv_and_search_async
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from utils import extract_text_from_pdf
 
 structlog.configure(
@@ -18,6 +22,18 @@ logger = structlog.get_logger()
 
 app = FastAPI(title="CV-Embedding Engine API")
 
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
+
+
+@app.exception_handler(429)
+async def _rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Max 10 requests/minute."},
+    )
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:
@@ -26,7 +42,20 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/embed-cv")
-async def embed_cv(file: UploadFile = File(...)) -> dict[str, list[Any]]:
+@limiter.limit("5/minute")
+async def embed_cv(request: Request, file: UploadFile = File(...)) -> dict[str, list[Any]]:
+    """Extract text from uploaded PDF, generate embedding, and return matching jobs.
+
+    Rate-limited to 5 requests/minute (costly compute: embedding model + DB search).
+
+    Args:
+        request: FastAPI request object (required by slowapi).
+        file: PDF file upload (max 5MB).
+
+    Returns:
+        Dict with ``top_jobs`` key containing a list of matching job results,
+        each with job_id, similarity_score, intitule, entreprise, lieu, etc.
+    """
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be PDF")
 

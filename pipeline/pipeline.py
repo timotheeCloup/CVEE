@@ -103,6 +103,15 @@ def serialize_json_col(val):
 
 
 def main(raw_path=None):
+    """Run the full ETL pipeline: bronze → silver → gold.
+
+    Reads raw jobs from GCS, cleans HTML, generates embeddings via
+    sentence-transformers, and writes silver + gold Parquet back to GCS.
+
+    Args:
+        raw_path: Optional specific raw Parquet file URI (gs://...).
+            If None, reads the latest file from the jobs_raw/ prefix.
+    """
     t_total = time.time()
 
     # --- 1. Read raw data ---

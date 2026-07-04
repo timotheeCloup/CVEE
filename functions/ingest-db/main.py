@@ -8,6 +8,14 @@ from shared.config import get_config
 
 @functions_framework.http
 def ingest_db_cf(request):
+    """Cloud Function: sync gold Parquet from GCS → Supabase PostgreSQL.
+
+    Args:
+        request: Flask request object. No query params required.
+
+    Returns:
+        Tuple (response_body, status_code).
+    """
     """
     Cloud Function: ingest silver + gold from GCS → Supabase + cleanup dead offers.
     Triggered by Cloud Scheduler (nightly, after Databricks pipeline).
