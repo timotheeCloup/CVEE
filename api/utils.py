@@ -40,12 +40,14 @@ async def _get_pool() -> AsyncConnectionPool:
 
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from first page of PDF"""
+    """Extract text from all pages of PDF"""
     reader = PdfReader(io.BytesIO(file_bytes))
-    text = ""
-    if reader.pages:
-        text = reader.pages[0].extract_text() or ""
-    return text.strip()
+    parts = []
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            parts.append(text)
+    return " ".join(parts).strip()
 
 
 def extract_french_keywords_from_headline(headline: Any) -> list[str]:
