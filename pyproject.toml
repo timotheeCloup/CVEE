@@ -53,6 +53,8 @@ dev = [
     "streamlit>=1.20.0",
     "alembic>=1.18.5",
     "psycopg2-binary>=2.9.12",
+    "prometheus-fastapi-instrumentator>=8.0.2",
+    "slowapi>=0.1.10",
 ]
 
 [tool.ruff]
