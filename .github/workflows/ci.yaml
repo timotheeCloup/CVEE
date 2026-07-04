@@ -35,8 +35,8 @@ jobs:
 
       - run: uv sync --group dev
 
-      - name: pytest
-        run: uv run pytest tests/ -v
+      - name: pytest with coverage
+        run: uv run pytest tests/ -v --cov
 
   build-api:
     runs-on: ubuntu-latest
