@@ -85,6 +85,7 @@ ignore = [
 ]
 exclude = [
     "src/*",       # legacy Databricks/shared code
+    "databricks/*",# Databricks notebooks (spark, dbutils built-ins)
     "infra/*",     # moved to functions/
     "docker/*",    # just compose file
 ]
@@ -118,5 +119,5 @@ strict = true
 python_version = "3.12"
 explicit_package_bases = true
 disallow_untyped_decorators = false
-exclude = ["src/", "infra/", "scripts/", "pipeline/", "functions/", "ui/"]
+exclude = ["src/", "databricks/", "infra/", "scripts/", "pipeline/", "functions/", "ui/"]
 ignore_missing_imports = true

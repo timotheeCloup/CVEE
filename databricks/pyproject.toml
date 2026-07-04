@@ -1,0 +1,15 @@
+[project]
+name = "cvee-databricks"
+version = "0.1.0"
+description = "CVEE Databricks Pipeline — Spark/Delta Lake ETL (bronze→silver→gold)"
+requires-python = ">=3.12"
+dependencies = [
+    "pyspark>=3.5.0",
+    "delta-spark>=3.2.0",
+    "sentence-transformers>=2.2.2",
+    "torch>=2.0.0",
+    "gcsfs>=2024.2.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "pyarrow>=15.0.0",
+]

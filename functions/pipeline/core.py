@@ -118,6 +118,26 @@ def _numpy_to_python(obj):
     return str(obj)
 
 
+def _databricks_already_produced(bucket_name):
+    """Check if Databricks already produced today's silver+gold output in GCS.
+
+    Both silver AND gold must exist to confirm a complete Databricks run.
+    Incomplete runs (silver only) are treated as NOT done → GCP fallback.
+    """
+    fs = gcsfs.GCSFileSystem()
+    today = datetime.now().strftime("%Y%m%d")
+    try:
+        silver_exists = (
+            len(fs.glob(f"gs://{bucket_name}/{PREFIX_SILVER}/jobs_silver_{today}*.parquet")) > 0
+        )
+        gold_exists = (
+            len(fs.glob(f"gs://{bucket_name}/{PREFIX_GOLD}/jobs_gold_{today}*.parquet")) > 0
+        )
+    except FileNotFoundError:
+        return False
+    return silver_exists and gold_exists
+
+
 def _list_raw_files(bucket_name, days=None):
     """Return sorted list of raw parquet file URIs from GCS.
 
@@ -166,6 +186,10 @@ def run_pipeline(bucket_name, days=None, max_jobs=None):
     days=N   → last N days of raw files, deduplicated (manual backfill)
     max_jobs → limit number of jobs processed (for fast tests)
     """
+    if _databricks_already_produced(bucket_name):
+        print("Databricks already produced today's silver batch — skipping GCP pipeline.")
+        return None, None
+
     raw_files = _list_raw_files(bucket_name, days=days)
     if not raw_files:
         print("No raw files found. Aborting.")
