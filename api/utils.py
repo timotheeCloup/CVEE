@@ -17,7 +17,7 @@ CANDIDATE_POOL: int = 1000
 EMBED_WEIGHT: int = 1
 FTS_WEIGHT: int = 10
 MAP_FROM_MIN: float = 0.1
-MAP_FROM_MAX: float = 3.0
+MAP_FROM_MAX: float = 6.0
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
