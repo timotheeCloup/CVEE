@@ -42,6 +42,15 @@ def _api_request(method, path, body=None):
 
 
 def stop_billing(event, context=None):
+    """Pub/Sub-triggered: disable billing when budget alert fires.
+
+    Args:
+        event: Pub/Sub event payload containing budget alert data.
+        context: Cloud Functions context metadata.
+
+    Returns:
+        None.
+    """
     """
     Cloud Function triggered by Pub/Sub budget alert.
     If cost >= 100% of budget, calls Cloud Billing API to unlink project.

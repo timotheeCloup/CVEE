@@ -86,7 +86,15 @@ async def verify_job_link(job_id: str, timeout: float = 0.2) -> dict[str, Any]:
 async def filter_dead_jobs(
     top_jobs: list[dict[str, Any]], max_concurrent: int = 10
 ) -> list[dict[str, Any]]:
-    """Filter out dead job offers using parallel HEAD requests."""
+    """Filter out dead job offers using parallel HEAD requests.
+
+    Args:
+        top_jobs: Job results from hybrid search.
+        max_concurrent: Max simultaneous HEAD requests (default 10).
+
+    Returns:
+        Filtered list of jobs whose France Travail links are still alive.
+    """
     if not top_jobs:
         return top_jobs
 
@@ -166,7 +174,15 @@ async def embed_cv_and_search(
 async def embed_cv_and_search_async(
     cv_text: str, t_api_start: float | None = None
 ) -> list[dict[str, Any]]:
-    """Async wrapper: search + link verification."""
+    """Search jobs via hybrid FTS+embedding, then filter dead links.
+
+    Args:
+        cv_text: Full text extracted from the CV PDF.
+        t_api_start: Optional start timestamp for total duration logging.
+
+    Returns:
+        List of verified (alive) matching job results.
+    """
     top_jobs = await embed_cv_and_search(cv_text, t_api_start)
     verified_jobs = await filter_dead_jobs(top_jobs)
     return verified_jobs

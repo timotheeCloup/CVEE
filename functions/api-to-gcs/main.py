@@ -7,6 +7,15 @@ from shared.config import get_config
 
 @functions_framework.http
 def api_to_gcs_cf(request):
+    """Cloud Function: fetch job offers from France Travail API → store in GCS.
+
+    Args:
+        request: Flask request object. Query params: ``date_min``, ``date_max``,
+            ``max_results``, ``publiee_depuis``.
+
+    Returns:
+        Tuple (response_body, status_code).
+    """
     """
     Cloud Function: fetch France Travail jobs → store in GCS.
 

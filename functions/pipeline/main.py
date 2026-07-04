@@ -5,6 +5,14 @@ from shared.config import get_config
 
 @functions_framework.http
 def pipeline_cf(request):
+    """Cloud Function: run ETL pipeline bronze → silver → gold.
+
+    Args:
+        request: Flask request object. Query params: ``days`` (int, default 1).
+
+    Returns:
+        Tuple (response_body, status_code).
+    """
     """
     Cloud Function: Bronze (raw) → Silver + Gold.
     Triggered by Cloud Scheduler (nightly, after api-to-gcs-cf).

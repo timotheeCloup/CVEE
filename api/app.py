@@ -27,6 +27,15 @@ async def health() -> dict[str, str]:
 
 @app.post("/embed-cv")
 async def embed_cv(file: UploadFile = File(...)) -> dict[str, list[Any]]:
+    """Extract text from uploaded PDF, generate embedding, and return matching jobs.
+
+    Args:
+        file: PDF file upload (max 5MB).
+
+    Returns:
+        Dict with ``top_jobs`` key containing a list of matching job results,
+        each with job_id, similarity_score, intitule, entreprise, lieu, etc.
+    """
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be PDF")
 
