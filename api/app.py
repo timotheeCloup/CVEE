@@ -1,11 +1,12 @@
 import os
 import time
-from typing import Any
 
 import structlog
+from config import settings
 from embed_cv_search import embed_cv_and_search_async
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from models import EmbedResponse, HealthResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -35,26 +36,18 @@ async def _rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
     """Health check endpoint for Cloud Run"""
-    return {"status": "healthy"}
+    return HealthResponse(status="healthy")
 
 
-@app.post("/embed-cv")
+@app.post("/embed-cv", response_model=EmbedResponse)
 @limiter.limit("5/minute")
-async def embed_cv(request: Request, file: UploadFile = File(...)) -> dict[str, list[Any]]:
+async def embed_cv(request: Request, file: UploadFile = File(...)) -> EmbedResponse:
     """Extract text from uploaded PDF, generate embedding, and return matching jobs.
 
     Rate-limited to 5 requests/minute (costly compute: embedding model + DB search).
-
-    Args:
-        request: FastAPI request object (required by slowapi).
-        file: PDF file upload (max 5MB).
-
-    Returns:
-        Dict with ``top_jobs`` key containing a list of matching job results,
-        each with job_id, similarity_score, intitule, entreprise, lieu, etc.
     """
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be PDF")
@@ -73,11 +66,11 @@ async def embed_cv(request: Request, file: UploadFile = File(...)) -> dict[str, 
     t_end = time.time()
     logger.info("request_complete", total_duration=round(t_end - t_start, 2))
 
-    return {"top_jobs": top_jobs}
+    return EmbedResponse(top_jobs=top_jobs)
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("PORT", "8080"))
+    port = int(os.getenv("PORT", str(settings.port)))
     uvicorn.run(app, host="0.0.0.0", port=port)  # nosec B104 -- intended for container

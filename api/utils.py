@@ -1,23 +1,14 @@
 import io
-import os
 import re
 import time
 from typing import Any
 
 import structlog
-from dotenv import load_dotenv
+from config import settings
 from psycopg_pool import AsyncConnectionPool
 from pypdf import PdfReader
 
 logger: Any = structlog.get_logger()
-
-load_dotenv()
-
-DB_HOST: str | None = os.getenv("DB_HOST")
-DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
-DB_USER: str | None = os.getenv("DB_USER")
-DB_PASSWORD: str | None = os.getenv("DB_PASSWORD")
-DB_NAME: str | None = os.getenv("DB_NAME")
 
 TOP_K: int = 100
 
@@ -36,9 +27,9 @@ _db_pool: AsyncConnectionPool | None = None
 
 async def _get_pool() -> AsyncConnectionPool:
     global _db_pool
-    if _db_pool is None and DB_HOST:
+    if _db_pool is None and settings.db_host:
         _db_pool = AsyncConnectionPool(
-            conninfo=f"host={DB_HOST} dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD} port={DB_PORT}",
+            conninfo=f"host={settings.db_host} dbname={settings.db_name} user={settings.db_user} password={settings.db_password} port={settings.db_port}",
             min_size=1,
             max_size=5,
             open=True,

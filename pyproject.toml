@@ -56,6 +56,9 @@ dev = [
     "psycopg2-binary>=2.9.12",
     "prometheus-fastapi-instrumentator>=8.0.2",
     "slowapi>=0.1.10",
+    "pydantic-settings>=2.14.2",
+    "polars>=1.42.1",
+    "duckdb>=1.5.4",
 ]
 
 [tool.ruff]
