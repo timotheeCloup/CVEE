@@ -27,7 +27,7 @@ async def health() -> dict[str, str]:
 
 @app.post("/embed-cv")
 async def embed_cv(file: UploadFile = File(...)) -> dict[str, list[Any]]:
-    if not file.filename.endswith(".pdf"):
+    if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be PDF")
 
     t_start = time.time()
