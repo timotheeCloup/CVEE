@@ -156,7 +156,17 @@ async def embed_cv_and_search(
     )
 
     # Generate embedding (multilingual model handles French natively)
-    embedding: list[float] = (await asyncio.to_thread(_get_model().encode, cv_text)).tolist()
+    try:
+        embedding: list[float] = (await asyncio.to_thread(_get_model().encode, cv_text)).tolist()
+    except Exception as e:
+        logger.error(
+            "embedding_error",
+            error=str(e),
+            error_type=type(e).__name__,
+            original_chars=len(cv_text),
+            after_stopwords=len(cv_text_for_fts),
+        )
+        raise
     t2 = time.time()
     logger.info("embedding", duration=round(t2 - t1, 2), dim=len(embedding))
 
