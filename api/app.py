@@ -1,5 +1,6 @@
 import os
 import time
+import traceback
 
 import structlog
 from config import settings
@@ -56,17 +57,57 @@ async def embed_cv(request: Request, file: UploadFile = File(...)) -> EmbedRespo
 
     file_bytes = await file.read()
     t_read = time.time()
-    logger.info("file_read", duration=round(t_read - t_start, 2))
+    logger.info(
+        "file_read",
+        duration=round(t_read - t_start, 2),
+        filename=file.filename,
+        size_bytes=len(file_bytes),
+    )
 
-    text = extract_text_from_pdf(file_bytes)
+    try:
+        text = extract_text_from_pdf(file_bytes)
+    except Exception as e:
+        logger.error("pdf_extract_error", error=str(e), traceback=traceback.format_exc())
+        raise HTTPException(status_code=400, detail=f"Failed to extract text from PDF: {e}") from e
+
     t_extract = time.time()
-    logger.info("pdf_extract", duration=round(t_extract - t_read, 2))
+    logger.info("pdf_extract", duration=round(t_extract - t_read, 2), text_chars=len(text))
 
-    top_jobs = await embed_cv_and_search_async(text, t_api_start=t_start)
+    if not text.strip():
+        logger.warning("empty_cv_text", text_chars=len(text))
+        return EmbedResponse(top_jobs=[])
+
+    try:
+        top_jobs = await embed_cv_and_search_async(text, t_api_start=t_start)
+    except Exception as e:
+        logger.error(
+            "embed_search_error",
+            error=str(e),
+            error_type=type(e).__name__,
+            traceback=traceback.format_exc(),
+            elapsed=round(time.time() - t_start, 2),
+        )
+        raise HTTPException(status_code=500, detail=f"Search failed: {e}") from e
+
     t_end = time.time()
-    logger.info("request_complete", total_duration=round(t_end - t_start, 2))
+    logger.info(
+        "request_complete",
+        total_duration=round(t_end - t_start, 2),
+        job_count=len(top_jobs),
+    )
 
-    return EmbedResponse(top_jobs=top_jobs)
+    try:
+        return EmbedResponse(top_jobs=top_jobs)
+    except Exception as e:
+        logger.error(
+            "response_validation_error",
+            error=str(e),
+            error_type=type(e).__name__,
+            job_count=len(top_jobs),
+            first_job=top_jobs[0] if top_jobs else None,
+            traceback=traceback.format_exc(),
+        )
+        raise HTTPException(status_code=500, detail=f"Response validation failed: {e}") from e
 
 
 if __name__ == "__main__":
