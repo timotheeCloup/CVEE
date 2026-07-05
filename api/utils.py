@@ -20,6 +20,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 
 TOP_K = 100
+CANDIDATE_POOL = 1000
 
 # Hybrid search weights
 EMBEDDING_WEIGHT = 1
@@ -128,28 +129,39 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
         fts_weights_literal = _build_fts_weights_literal()
 
         sql = """
-        SELECT
-            jg.job_id,
-            (1 - (jg.embedding <-> %s))::float8 as embedding_score,
-            COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
-            (%s * (1 - (jg.embedding <-> %s))::float8 +
-             %s * COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8)::float8 as combined_score,
-            js.intitule,
-            js.entreprise->>'nom' AS entreprise,
-            js.lieuTravail->>'libelle' AS lieu,
-            js.typeContratLibelle,
-            js.dateCreation,
-            ts_headline('french',
-                js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
-                COALESCE((SELECT string_agg(elem->>'libelle', ' ')
-                          FROM jsonb_array_elements(js.competences) AS elem), '') || ' ' ||
-                COALESCE((SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
-                          FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
-                to_tsquery('french', %s),
-                'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline
-        FROM jobs_gold jg
-        JOIN jobs_silver js ON jg.job_id = js.job_id
-        WHERE jg.fts_tokens IS NOT NULL
+        WITH embedding_candidates AS (
+            SELECT jg.job_id,
+                   (1 - (jg.embedding <-> %s))::float8 as embedding_score
+            FROM jobs_gold jg
+            WHERE jg.fts_tokens IS NOT NULL
+            ORDER BY embedding_score DESC
+            LIMIT %s
+        ),
+        all_candidates AS (
+            SELECT c.job_id, c.embedding_score,
+                   COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
+                   (%s * c.embedding_score +
+                    %s * COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0))::float8 as combined_score,
+                   js.intitule,
+                   js.entreprise->>'nom' AS entreprise,
+                   js.lieuTravail->>'libelle' AS lieu,
+                   js.typeContratLibelle,
+                   js.dateCreation,
+                   ts_headline('french',
+                       js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
+                       COALESCE((SELECT string_agg(elem->>'libelle', ' ')
+                                 FROM jsonb_array_elements(js.competences) AS elem), '') || ' ' ||
+                       COALESCE((SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
+                                 FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
+                       to_tsquery('french', %s),
+                       'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline
+            FROM embedding_candidates c
+            JOIN jobs_gold jg ON c.job_id = jg.job_id
+            JOIN jobs_silver js ON jg.job_id = js.job_id
+        )
+        SELECT job_id, embedding_score, fts_score, combined_score,
+               intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
+        FROM all_candidates
         ORDER BY combined_score DESC
         LIMIT %s;
         """
@@ -158,10 +170,10 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
             sql,
             (
                 embedding_str,
+                CANDIDATE_POOL,
                 fts_weights_literal,
                 tsquery,
                 EMBEDDING_WEIGHT,
-                embedding_str,
                 FTS_WEIGHT,
                 fts_weights_literal,
                 tsquery,
@@ -243,11 +255,11 @@ def search_jobs_vector_hybrid(embedding, cv_text_fts, cv_text_orig):
                 "embedding_score": round(r["embedding_score"], 4),
                 "fts_score": round(r["fts_score"], 4),
                 "combined_score": round(r["combined_score"], 4),
-                "intitule": r["intitule"],
-                "entreprise": r["entreprise"],
-                "lieu": r["lieu"],
-                "type_contrat": r["type_contrat"],
-                "date_creation": r["date_creation"],
+                "intitule": r["intitule"] or "",
+                "entreprise": r["entreprise"] or "",
+                "lieu": r["lieu"] or "",
+                "type_contrat": r["type_contrat"] or "",
+                "date_creation": r["date_creation"] or "",
                 "matching_terms": r["keywords"],
             }
         )
