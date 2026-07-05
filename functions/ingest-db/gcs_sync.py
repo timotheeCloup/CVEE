@@ -129,9 +129,16 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
             logger.info("processing_gold", path=gcs_path)
             try:
                 df_gold = read_parquet_from_gcs(gcs_path)
-                logger.info("gold_read", path=gcs_path, shape=list(df_gold.shape), columns=list(df_gold.columns))
+                logger.info(
+                    "gold_read",
+                    path=gcs_path,
+                    shape=list(df_gold.shape),
+                    columns=list(df_gold.columns),
+                )
             except Exception as e:
-                logger.error("gold_read_failed", path=gcs_path, error=str(e), error_type=type(e).__name__)
+                logger.error(
+                    "gold_read_failed", path=gcs_path, error=str(e), error_type=type(e).__name__
+                )
                 raise
             df_gold = df_gold[["job_id", "embedding"]]
 
