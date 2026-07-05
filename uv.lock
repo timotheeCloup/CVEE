@@ -27,7 +27,6 @@ members = [
     "cvee-cf-billing-guard",
     "cvee-cf-ingest-db",
     "cvee-cf-pipeline",
-    "cvee-pipeline",
     "cvee-ui",
 ]
 
@@ -769,11 +768,6 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=2.2.2" },
     { name = "torch", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu" },
 ]
-
-[[package]]
-name = "cvee-pipeline"
-version = "0.1.0"
-source = { virtual = "pipeline" }
 
 [[package]]
 name = "cvee-ui"

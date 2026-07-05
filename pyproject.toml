@@ -20,7 +20,6 @@ explicit = true
 members = [
     "api",
     "ui",
-    "pipeline",
     "functions/api-to-gcs",
     "functions/ingest-db",
     "functions/pipeline",
