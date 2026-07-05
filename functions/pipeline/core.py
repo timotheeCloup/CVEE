@@ -179,14 +179,15 @@ def _deduplicate(df):
     return df.unique(subset=["id"], keep="first", maintain_order=True)
 
 
-def run_pipeline(bucket_name, days=None, max_jobs=None):
+def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     """Bronze → Silver → Gold.
 
     days=None → latest raw file only (daily mode)
     days=N   → last N days of raw files, deduplicated (manual backfill)
     max_jobs → limit number of jobs processed (for fast tests)
+    force    → skip Databricks check and run unconditionally
     """
-    if _databricks_already_produced(bucket_name):
+    if not force and _databricks_already_produced(bucket_name):
         print("Databricks already produced today's silver batch — skipping GCP pipeline.")
         return None, None
 

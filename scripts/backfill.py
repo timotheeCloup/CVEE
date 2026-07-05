@@ -25,7 +25,6 @@ Usage:
 import argparse
 import calendar
 import os
-import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -37,6 +36,9 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 sys.path.insert(0, str(PROJECT_ROOT / "functions" / "api-to-gcs"))
 from ft_client import export_to_gcs, fetch_jobs_data, get_ft_token  # noqa: E402
+
+sys.path.insert(0, str(PROJECT_ROOT / "functions" / "pipeline"))
+from core import run_pipeline  # noqa: E402
 
 
 def generate_month_ranges(date_min_str, date_max_str):
@@ -94,17 +96,12 @@ def run_backfill(
     export_to_gcs(jobs, bucket_name, date_min=date_min_str, date_max=date_max_str)
 
     if with_pipeline:
-        print("\nRunning standalone pipeline (pipeline/pipeline.py)...")
-        pipeline_script = str(PROJECT_ROOT / "pipeline" / "pipeline.py")
-        result = subprocess.run(
-            ["python", pipeline_script],
-            capture_output=False,
-            cwd=str(PROJECT_ROOT),
-        )
-        if result.returncode != 0:
-            print(f"Pipeline exited with code {result.returncode}")
+        print("\nRunning pipeline (Polars)...")
+        silver_path, gold_path = run_pipeline(bucket_name, force=True)
+        if silver_path and gold_path:
+            print(f"Pipeline completed — Silver: {silver_path}, Gold: {gold_path}")
         else:
-            print("Pipeline completed")
+            print("Pipeline returned no output (no raw files or skipped)")
 
 
 def main():
