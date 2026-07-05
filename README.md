@@ -1,37 +1,34 @@
 # CVEE: CV-Embedding Engine
 
-Traditional job boards match you based on keywords. CVEE is fundamentally different—it analyzes your complete CV to understand who you really are, then finds the roles that truly align with your profile, skills, and experience in seconds using semantic search.
+Traditional job boards match you based on keywords. CVEE analyzes your entire CV to understand your profile, then finds the roles that truly align with your skills and experience using semantic search — in seconds.
 
-**CVEE** is an AI-powered job matching system that combines semantic embeddings and full-text search to find the most relevant job opportunities based on uploaded CVs. It integrates data from the France Travail API, processes job descriptions using sentence transformers, and stores embeddings in a PostgreSQL database with pgvector for efficient hybrid similarity searches.
+**CVEE** is an AI-powered job matching system that combines semantic embeddings and full-text search to find the most relevant job opportunities from the France Travail API.
 
-Try it now: [CV Match Engine](https://cvee-ui-1081304882492.europe-west1.run.app/)
+**Try it now:** [CV Match Engine](https://cvee-ui-1081304882492.europe-west1.run.app/)
 
-[![API Health Check](https://github.com/timotheeCloup/CVEE/actions/workflows/ci.yaml/badge.svg)](https://github.com/timotheeCloup/CVEE/actions/workflows/ci.yaml)
+[![CI](https://github.com/timotheeCloup/CVEE/actions/workflows/ci.yaml/badge.svg)](https://github.com/timotheeCloup/CVEE/actions/workflows/ci.yaml)
 
 ---
 
 <p align="center">
   <img src="./assets/demo.gif" alt="demo">
   <br>
-  <b>End-to-end CV parsing and real-time vector matching</b>
+  <b>End-to-end CV parsing and real-time hybrid search</b>
 </p>
 
 ---
 
 ## Features
 
-- **Intelligent Job Matching** - Combines semantic embeddings and full-text search for accurate results
-- **Real-Time Search** - Upload your CV and get matched jobs in seconds
-- **Automated Data Pipeline** - Daily ingestion from France Travail API with PySpark transformation
-- **Vector Database** - Supabase PostgreSQL with pgvector for efficient similarity queries on 384-dimensional embeddings
-- **Professional UI** - Clean Streamlit interface with direct job posting links
-- **Serverless Scalability** - Google Cloud Run deployment with auto-scaling
+- **Hybrid Semantic Search** — Cosine similarity (pgvector) + full-text search (PostgreSQL `ts_rank`) + title matching, combined via Reciprocal Rank Fusion (RRF)
+- **Real-Time Matching** — Upload your CV, get ranked results with keyword highlighting in seconds
+- **Multilingual Embeddings** — [`antoinelouis/french-me5-small`](https://huggingface.co/antoinelouis/french-me5-small) (384-dim)
+- **Automated ETL Pipeline** — Nightly ingestion, cleaning, deduplication, embedding generation, and database sync via Cloud Workflows
+- **Dead Link Detection** — Async HTTP verification of job posting links, prunes expired offers from the database
 
 ---
 
 ## Architecture
-
-The system follows a modern data pipeline architecture with clear separation of concerns:
 
 <p align="center">
   <img src="./assets/CVEE.drawio.svg" alt="Data pipelines architecture">
@@ -43,64 +40,70 @@ The system follows a modern data pipeline architecture with clear separation of 
 
 | Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| **API Service** | FastAPI + Cloud Run | Handles CV parsing, embedding generation, and hybrid search queries |
-| **Web UI** | Streamlit + Cloud Run | User-friendly interface for CV upload and results visualization |
-| **Vector Database** | Supabase (PostgreSQL + pgvector) | Stores structured job data and 384-dimensional embeddings |
-| **Data Processing** | PySpark + Databricks | ETL pipelines for data transformation and embedding generation |
-| **Cloud Storage** | AWS S3 | Raw job data, intermediate processed datasets, and backups |
-| **Orchestration** | Google Cloud Scheduler + Cloud Functions | Automated daily data sync and API ingestion |
+| **API Service** | FastAPI + Cloud Run | CV parsing, embedding generation, hybrid search with RRF |
+| **Web UI** | Streamlit + Cloud Run | CV upload, job cards with scores, keyword highlighting |
+| **Vector Database** | Supabase (PostgreSQL 16 + pgvector) | Structured job data and 384-dimensional embeddings |
+| **Data Processing** | Databricks (PySpark/Delta Lake) + Polars (fallback) | ETL pipeline: HTML cleaning, JSON aggregation, embedding generation |
+| **Cloud Storage** | Google Cloud Storage | Data lake: Bronze/Silver/Gold layers in Parquet format |
+| **Orchestration** | Cloud Workflows + Cloud Scheduler | Nightly trigger: fetch → transform → ingest, with automatic retry |
+| **Infrastructure** | Terraform | Full IaC for all GCP resources, secrets stored in Secret Manager |
 
-### Data Flow Pipeline
+### Data Pipeline
 
-1. **API Ingestion** (Cloud Function) - France Travail API → AWS S3 (Bronze layer)
-2. **Data Transformation** (Databricks) - Bronze → Silver (cleaning, deduplication, French→English translation)
-3. **Embedding Generation** (Databricks) - Silver → Gold (BAAI/bge-small-en model)
-4. **Database Sync** (Cloud Function) - AWS S3 (Gold) → Supabase PostgreSQL
-5. **User Query** - CV upload → FastAPI → Hybrid search → Streamlit UI
+1. **Fetch** (`api-to-gcs-cf`) — France Travail API → GCS Bronze layer (Parquet)
+2. **Transform** — Bronze → Silver (HTML cleaning, JSON aggregation) → Gold (384-dim embeddings)
+   - **Primary:** Databricks (PySpark + Delta Lake)
+   - **Fallback:** Cloud Function `pipeline-cf` (Polars), triggered if Databricks job has failed
+3. **Ingest** (`ingest-db-cf`) — GCS Silver + Gold → Supabase (upsert), dead job cleanup
+4. **Search** — CV upload → FastAPI embedding → hybrid pgvector + FTS + RRF → ranked results
 
 ### Hybrid Search Algorithm
 
-The matching combines two complementary approaches:
+The matching engine combines two ranking signals :
 
-- **Semantic Matching** - Cosine similarity between CV and job embeddings using [BAAI/bge-small-en](https://huggingface.co/BAAI/bge-small-en)
-- **Full-Text Search** - PostgreSQL ts_rank on job descriptions with weighted tsvector levels
-- **Result Ranking** - Combined score balances both signals for optimal relevance
+- **Semantic Similarity** — Cosine distance between CV and job embeddings via pgvector `<->` operator
+- **Full-Text Search** — PostgreSQL `ts_rank` on weighted tsvector (title, description, competences), French stopwords removed
 
 ---
 
 ## Technology Stack
 
 ### Backend & API
-- **FastAPI** - Modern, async web framework for the search API
-- **Python 3.11** - Primary language for all services
-- **pypdf** - CV text extraction from PDF files
-- **Sentence Transformers** - BAAI/bge-small-en for embedding generation (384 dims)
+- **FastAPI** — Async REST API, OpenAPI auto-generated
+- **Python 3.12** — Primary language, strict type checking via mypy
+- **Pydantic** — Request/response models, `pydantic-settings` for config
+- **structlog** — Structured JSON logging across all services
+- **slowapi** — Rate limiting (5 req/min on `/embed-cv`)
+- **Prometheus** — `/metrics` endpoint via `prometheus-fastapi-instrumentator`
 
 ### Data & Storage
-- **Supabase (PostgreSQL 16)** - Vector database with pgvector extension
-- **AWS S3** - Object storage for Bronze/Silver/Gold datasets
-- **Parquet** - Columnar format for efficient data processing
-- **pandas + PyArrow** - Data manipulation and format conversion
+- **Supabase (PostgreSQL 16 + pgvector)** — Vector database with HNSW index
+- **Google Cloud Storage** — Data lake (Bronze/Silver/Gold Parquet layers)
+- **Databricks** — PySpark/Delta lake
+- **Polars** — Lazy, multi-threaded ETL
+- **DuckDB** — On-the-fly OLAP analytics on GCS Parquet files
 
-### Data Processing & ML
-- **PySpark** - Distributed computing for large-scale data transformation
-- **Databricks** - Managed platform for notebook execution and job orchestration
-- **Google Cloud Translate API** - French → English text translation
-- **Hugging Face** - Pre-trained sentence transformer models
+### ML & Embeddings
+- **Sentence Transformers** — `antoinelouis/french-me5-small` (36M params, 384-dim)
+- **PyTorch** — CPU-only inference
+- **Batch encoding** — Configurable batch size with progress tracking
 
-### Deployment & Cloud Infrastructure
-- **Google Cloud Run** - Serverless container hosting (API & UI)
-- **Google Cloud Functions** - Serverless compute for ETL pipelines
-- **Google Cloud Scheduler** - Cron-based job orchestration
-- **Docker** - Containerization of all services
+### Infrastructure & DevOps
+- **Terraform** — Full IaC: Cloud Run, Cloud Functions, GCS, Scheduler, Workflows, Secret Manager, Artifact Registry
+- **Cloud Run** — Serverless containers for API and UI
+- **Cloud Functions (2nd gen)** — Event-driven ETL steps
+- **Cloud Workflows** — Orchestration with YAML-based DAG, automatic retry
+- **Cloud Scheduler** — Cron trigger for nightly pipeline
+- **Docker** — Multi-stage builds, non-root user, HEALTHCHECK
 
-### Frontend
-- **Streamlit** - Lightweight framework for data-driven web app
-- **Requests** - HTTP client for API communication
-
-### DevOps & CI/CD
-- **GitHub Actions** - Automated API health checks on every push
-- **Docker** - Container images for Cloud Run deployment
+### CI/CD & Quality
+- **GitHub Actions** — CI (ruff, mypy, bandit, pytest+cov, Docker build, Terraform validate) + CD (auto-deploy to Cloud Run via WIF)
+- **ruff** — Linter + formatter, strict ruleset
+- **mypy** — Strict type checking on `api/`
+- **bandit** — Security linting
+- **pytest** — 54 tests, 88% coverage (unit + integration + E2E/Playwright)
+- **pre-commit** — ruff + gitleaks hooks
+- **uv** — Package management, workspace monorepo
 
 ---
 
@@ -108,46 +111,86 @@ The matching combines two complementary approaches:
 
 ```
 CVEE/
-├── api/                                    # FastAPI Service
-│   ├── app.py                             # Main API endpoints (/health, /embed-cv)
-│   ├── embed_cv_search.py                 # Hybrid search logic
-│   ├── utils.py                           # Database queries, PDF extraction
-│   ├── stopwords.json                     # French stopwords for FTS
-│   ├── Dockerfile                         # Cloud Run image
-│   └── requirements.txt
+├── api/                          # FastAPI search service
+│   ├── app.py                    # Endpoints: /health, /embed-cv, /metrics
+│   ├── embed_cv_search.py        # Hybrid search: embeddings + RRF
+│   ├── utils.py                  # PDF extraction, DB queries, keyword highlight
+│   ├── models.py                 # Pydantic models
+│   ├── config.py                 # pydantic-settings
+│   ├── stopwords.json            # French stopwords for FTS
+│   ├── pyproject.toml
+│   └── Dockerfile
 │
-├── ui/                                     # Streamlit Web Interface
-│   ├── app.py                             # Streamlit UI application
-│   ├── Dockerfile                         # Cloud Run image
-│   └── requirements.txt
+├── ui/                           # Streamlit frontend
+│   ├── app.py                    # Upload, progress bars, job cards
+│   ├── pyproject.toml
+│   └── Dockerfile
 │
-├── src/
-│   ├── cf-api-to-s3/                      # Cloud Function: API → S3
-│   │   ├── main.py                        # Cloud Function entry point
-│   │   ├── api_to_s3_loader.py           # France Travail API fetcher
-│   │   └── requirements.txt
-│   │
-│   ├── cf-ingest-db/                      # Cloud Function: S3 → Supabase
-│   │   ├── main.py                        # Cloud Function entry point
-│   │   ├── sync_s3_to_supabase.py        # S3 to PostgreSQL sync logic
-│   │   ├── cleanup_dead_jobs.py          # Dead job offer link verification
-│   │   └── requirements.txt
-│   │
-│   ├── init_db.py                         # PostgreSQL schema initialization
-│   ├── jobs_ingestion_silver.ipynb        # Databricks: Bronze → Silver
-│   ├── jobs_embeddings_gold.ipynb         # Databricks: Silver → Gold (embeddings)
-│   └── jobs_export.ipynb                  # Databricks: Export to S3
+├── functions/                    # Cloud Functions (2nd gen)
+│   ├── api-to-gcs/               # France Travail API → GCS (Bronze)
+│   │   ├── main.py               # CF entry point
+│   │   ├── ft_client.py          # OAuth2, pagination, export
+│   │   └── pyproject.toml
+│   ├── pipeline/                 # Bronze → Silver → Gold ETL
+│   │   ├── main.py               # CF entry point
+│   │   ├── core.py               # Polars ETL: HTML clean, embeddings, dedup
+│   │   └── pyproject.toml
+│   ├── ingest-db/                # GCS → Supabase + cleanup
+│   │   ├── main.py               # CF entry point
+│   │   ├── gcs_sync.py           # Silver + Gold ingestion (upsert)
+│   │   ├── cleanup.py            # Dead job verification + deletion
+│   │   └── pyproject.toml
+│   ├── billing-guard/            # Auto-disable GCP billing (safety net)
+│   │   ├── main.py
+│   │   └── pyproject.toml
+│   └── shared/                   # Shared config (Secret Manager)
+│       └── config.py
 │
-├── docker/                                # Local development
-│   └── docker-compose.yml
+├── databricks/                   # Spark/Delta Lake pipeline 
+│   ├── silver.py                 # Bronze → Silver (HTML clean, JSON aggregation)
+│   ├── gold.py                   # Silver → Gold (embeddings)
+│   ├── export.py                 # Delta → GCS Parquet export
+│   └── cleanup.py                # Dead job cleanup
 │
-└── .github/
-    └── workflows/ci.yaml                  # GitHub Actions CI
+├── infra/                        # Terraform
+│   ├── main.tf                   # Provider, backend
+│   ├── cloud_functions.tf        # 4 CFs gen2
+│   ├── cloud_run.tf              # API + UI Cloud Run services
+│   ├── storage.tf                # GCS bucket + lifecycle rules
+│   ├── scheduler.tf              # Cloud Scheduler → Workflows
+│   ├── workflows.tf              # ETL orchestration DAG
+│   ├── secrets.tf                # Secret Manager
+│   └── terraform.tfvars.example
+│
+├── pipeline/                     # DB migrations & init
+│   ├── init_db.py               # Alembic runner
+│   └── migrations/              # Alembic versions
+│
+├── tests/                        # Test suite
+│   ├── conftest.py              # Fixtures, mocks
+│   ├── test_api.py              # API endpoints
+│   ├── test_embed_cv_search.py  # Embeddings + FTS + link verification
+│   ├── test_utils.py            # PDF extraction, keywords, hybrid search
+│   ├── test_pipeline_core.py    # Pipeline ETL logic
+│   └── e2e/                     # Playwright E2E tests
+│       └── test_upload_flow.py  # Upload → results verification
+│
+├── scripts/                      # Utilities
+│   ├── backfill.py              # Historical data backfill
+│   ├── analytics.py             # DuckDB OLAP on GCS Parquet
+│   └── update_secrets.py        # Secret Manager helper
+│
+├── docker-compose.yml           # Local dev: PostgreSQL + API + UI
+├── pyproject.toml               # Root workspace (uv, ruff, mypy, pytest)
+├── justfile                     # Task runner: just lint, just test, just deploy
+├── alembic.ini                  # Alembic configuration
+└── .github/workflows/
+    ├── ci.yaml                  # CI: lint, typecheck, test, Docker build, Terraform
+    └── deploy.yaml              # CD: auto-deploy to Cloud Run via WIF
 ```
 
 ---
 
-
 ## License
 
-MIT License - See [LICENSE](LICENSE) file for details.
+MIT License — See [LICENSE](LICENSE) file for details.
