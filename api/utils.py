@@ -15,9 +15,9 @@ CANDIDATE_POOL: int = 1000
 
 # Linear hybrid scoring weights
 EMBED_WEIGHT: int = 1
-FTS_WEIGHT: int = 4
-MAP_FROM_MIN: float = 0.25
-MAP_FROM_MAX: float = 1.0
+FTS_WEIGHT: int = 10
+MAP_FROM_MIN: float = 0.1
+MAP_FROM_MAX: float = 6.0
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
@@ -222,7 +222,7 @@ async def search_jobs_vector_hybrid(
     # Format results for API response
     processed_results = []
     for job in hybrid_results:
-        mapped = linear_mapping(job["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.15, 0.85)
+        mapped = linear_mapping(job["combined_score"], MAP_FROM_MIN, MAP_FROM_MAX, 0.1, 0.9)
         clamped = max(0.0, min(1.0, mapped))
         processed_results.append(
             {

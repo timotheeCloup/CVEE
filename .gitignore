@@ -63,6 +63,8 @@ infra/*.tfvars
 !infra/terraform.tfvars.example
 # Databricks notebooks (fallback only)
 src/*.ipynb
+# Databricks secrets (local only, contains GCS credentials)
+databricks/_secrets.py
 roadmap.md
 functions/api-to-gcs/shared/
 functions/pipeline/shared/

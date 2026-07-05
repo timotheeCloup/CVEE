@@ -1,6 +1,8 @@
 # ── CVEE ETL Pipeline Workflow ──
-# Orchestrates: api-to-gcs → pipeline → ingest-db in sequence
-# Free tier: 5,000 steps/month → ~270 steps/month for daily execution
+# 1. Fetch API → GCS raw
+# 2. Wait 15 min (Databricks cron runs at 21:30, processes silver→gold→export)
+# 3. Check if Databricks produced today's output → skip GCP processing if yes
+# 4. Ingest to Supabase
 main:
   steps:
     - fetch_api:
@@ -19,8 +21,13 @@ main:
     - check_api:
         switch:
           - condition: $${api_result.code == 200}
-            next: run_pipeline
+            next: wait_for_databricks
         next: pipeline_failed
+    - wait_for_databricks:
+        call: sys.sleep
+        args:
+          seconds: 1800
+        next: run_pipeline
     - run_pipeline:
         try:
           call: http.post
