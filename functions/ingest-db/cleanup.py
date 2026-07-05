@@ -3,6 +3,9 @@ import time
 
 import aiohttp
 import psycopg2
+import structlog
+
+logger = structlog.get_logger()
 
 
 async def verify_job_link(job_id: str, timeout: float = 0.5) -> dict:
@@ -115,7 +118,7 @@ def get_all_job_ids(db_host, db_port, db_user, db_password, db_name):
 
         return job_ids
     except Exception as e:
-        print(f"Error retrieving job IDs from database: {str(e)}", flush=True)
+        logger.error("db_retrieve_error", error=str(e))
         raise
 
 
@@ -132,7 +135,7 @@ def delete_dead_jobs(dead_ids: set, db_host, db_port, db_user, db_password, db_n
         Number of deleted rows
     """
     if not dead_ids:
-        print("No dead jobs to delete.", flush=True)
+        logger.info("no_dead_jobs")
         return 0
 
     try:
@@ -156,7 +159,7 @@ def delete_dead_jobs(dead_ids: set, db_host, db_port, db_user, db_password, db_n
 
         return deleted_count
     except Exception as e:
-        print(f"Error deleting dead jobs from database: {str(e)}", flush=True)
+        logger.error("db_delete_error", error=str(e))
         raise
 
 
@@ -173,40 +176,41 @@ async def cleanup_dead_jobs_main(secrets):
     db_password = secrets.get("SB_PASSWORD")
     db_name = secrets.get("SB_NAME")
 
-    print("\n=== CLEANUP DEAD JOBS ===", flush=True)
+    logger.info("cleanup_started")
 
     # Step 1: Retrieve all job IDs from database
     t0 = time.time()
-    print("1. Retrieving all job IDs from database...", flush=True)
+    logger.info("cleanup_step_retrieve_ids")
     job_ids = get_all_job_ids(db_host, db_port, db_user, db_password, db_name)
     t1 = time.time()
-    print(f"   Retrieved {len(job_ids)} job IDs in {t1 - t0:.2f}s", flush=True)
+    logger.info("cleanup_retrieved_ids", count=len(job_ids), duration=f"{t1 - t0:.2f}s")
 
     if not job_ids:
-        print("No jobs in database to verify.", flush=True)
+        logger.info("cleanup_no_jobs")
         return {"status": "success", "deleted_count": 0}
 
     # Step 2: Batch verify all jobs
-    print("2. Verifying job links in parallel...", flush=True)
+    logger.info("cleanup_step_verify_links")
     verification_result = await batch_verify_all_jobs(job_ids, max_concurrent=10)
 
-    print(
-        f"   Verified {verification_result['total_checked']} jobs in {verification_result['duration']:.2f}s",
-        flush=True,
+    logger.info(
+        "cleanup_verified",
+        total_checked=verification_result["total_checked"],
+        duration=f"{verification_result['duration']:.2f}s",
+        dead_count=verification_result["dead_count"],
     )
-    print(f"   Dead jobs found: {verification_result['dead_count']}", flush=True)
 
     # Step 3: Delete dead jobs
     dead_ids = verification_result["dead_ids"]
     if dead_ids:
-        print("3. Deleting dead jobs from database...", flush=True)
+        logger.info("cleanup_step_delete", dead_count=len(dead_ids))
         deleted_count = delete_dead_jobs(dead_ids, db_host, db_port, db_user, db_password, db_name)
-        print(f"   Deleted {deleted_count} dead jobs", flush=True)
+        logger.info("cleanup_deleted", count=deleted_count)
     else:
-        print("3. No dead jobs to delete.", flush=True)
+        logger.info("cleanup_no_dead_jobs")
         deleted_count = 0
 
-    print("=== CLEANUP COMPLETE ===\n", flush=True)
+    logger.info("cleanup_completed")
 
     return {
         "status": "success",

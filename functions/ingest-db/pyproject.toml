@@ -13,4 +13,5 @@ dependencies = [
     "google-cloud-secret-manager>=2.0.0",
     "python-dotenv>=1.0.0",
     "aiohttp>=3.9.0",
+    "structlog>=24.0.0",
 ]

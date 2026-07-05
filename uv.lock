@@ -694,6 +694,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "structlog" },
 ]
 
 [package.metadata]
@@ -705,6 +706,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=15.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.32.0" },
+    { name = "structlog", specifier = ">=24.0.0" },
 ]
 
 [[package]]
@@ -726,6 +728,7 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pyarrow" },
     { name = "python-dotenv" },
+    { name = "structlog" },
 ]
 
 [package.metadata]
@@ -739,6 +742,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.7" },
     { name = "pyarrow", specifier = ">=15.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "structlog", specifier = ">=24.0.0" },
 ]
 
 [[package]]
@@ -753,6 +757,7 @@ dependencies = [
     { name = "polars" },
     { name = "pyarrow" },
     { name = "sentence-transformers" },
+    { name = "structlog" },
     { name = "torch", version = "2.12.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version < '3.15' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.12.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version >= '3.15' or sys_platform != 'darwin'" },
 ]
@@ -766,6 +771,7 @@ requires-dist = [
     { name = "polars", specifier = ">=1.0.0" },
     { name = "pyarrow", specifier = ">=15.0.0" },
     { name = "sentence-transformers", specifier = ">=2.2.2" },
+    { name = "structlog", specifier = ">=24.0.0" },
     { name = "torch", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu" },
 ]
 

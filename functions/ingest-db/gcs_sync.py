@@ -5,8 +5,11 @@ import gcsfs
 import numpy as np
 import pandas as pd
 import psycopg2
+import structlog
 
 DAYS_BEFORE_PURGE = 30
+
+logger = structlog.get_logger()
 
 
 def _parse_gcs_time(t):
@@ -45,7 +48,7 @@ def delete_old_records(cursor, days=DAYS_BEFORE_PURGE):
     """Delete old records from jobs_silver table"""
     sql = "DELETE FROM jobs_silver WHERE ingestion_date < CURRENT_DATE - INTERVAL '%s days';"
     cursor.execute(sql, (days,))
-    print(f"{cursor.rowcount} old offers deleted.")
+    logger.info("old_records_deleted", count=cursor.rowcount)
 
 
 def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
@@ -81,10 +84,10 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
 
     # --- Processing Silver Table ---
     if not silver_keys:
-        print("No Silver files found.")
+        logger.info("no_silver_files")
     else:
         for gcs_path in silver_keys:
-            print(f"Processing Silver file: {gcs_path}")
+            logger.info("processing_silver", path=gcs_path)
             df_silver = read_parquet_from_gcs(gcs_path)
 
             for col in json_cols:
@@ -113,14 +116,14 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                 cur.execute(sql, values)
 
             conn.commit()
-            print(f"File {gcs_path} inserted successfully.")
+            logger.info("silver_inserted", path=gcs_path)
 
     # --- Processing Gold Table ---
     if not gold_keys:
-        print("No Gold files found.")
+        logger.info("no_gold_files")
     else:
         for gcs_path in gold_keys:
-            print(f"Processing Gold file: {gcs_path}")
+            logger.info("processing_gold", path=gcs_path)
             df_gold = read_parquet_from_gcs(gcs_path)
             df_gold = df_gold[["job_id", "embedding"]]
 
@@ -143,12 +146,12 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                 cur.execute(sql, (job_id, embedding))
 
             conn.commit()
-            print(f"File {gcs_path} inserted successfully.")
+            logger.info("gold_inserted", path=gcs_path)
 
     delete_old_records(cur, days=30)
     conn.commit()
     conn.close()
-    print("End of import to Supabase")
+    logger.info("ingest_supabase_completed")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from datetime import datetime
 import gcsfs
 import pandas as pd
 import requests
+import structlog
 
 FT_AUTH_URL = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
 FT_API_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
@@ -10,6 +11,8 @@ FT_SCOPE = "o2dsoffre api_offresdemploiv2"
 
 DEFAULT_PAGE_SIZE = 150
 DEFAULT_MAX_INDEX = 3000
+
+logger = structlog.get_logger()
 
 
 def get_ft_token(ft_client_id, ft_client_secret):
@@ -28,10 +31,10 @@ def get_ft_token(ft_client_id, ft_client_secret):
         )
         response.raise_for_status()
         token_data = response.json()
-        print("France Travail API token obtained successfully.")
+        logger.info("ft_token_obtained")
         return token_data.get("access_token")
     except Exception as e:
-        print(f"Error obtaining token: {e}")
+        logger.error("ft_token_error", error=str(e))
         return None
 
 
@@ -95,18 +98,18 @@ def fetch_jobs_data(
 
             jobs_page = data.get("resultats", [])
             if not jobs_page:
-                print(f"No more jobs at index {start_index}.")
+                logger.info("no_more_jobs", start_index=start_index)
                 break
 
             jobs.extend(jobs_page)
-            print(f"Retrieved {len(jobs)} jobs so far.")
+            logger.info("fetch_progress", total=len(jobs), start_index=start_index)
             start_index += page_size
 
         except Exception as e:
-            print(f"Error at index {start_index}: {e}")
+            logger.error("fetch_error", start_index=start_index, error=str(e))
             break
 
-    print(f"Total jobs collected: {len(jobs)}")
+    logger.info("fetch_completed", total_jobs=len(jobs))
     return jobs
 
 
@@ -120,7 +123,7 @@ def _make_filename(date_min, date_max):
 def export_to_gcs(jobs, bucket_name, date_min=None, date_max=None):
     """Export jobs DataFrame to GCS as Parquet using Application Default Credentials"""
     if not jobs:
-        print("No jobs to export.")
+        logger.info("no_jobs_to_export")
         return
 
     filename = _make_filename(date_min, date_max)
@@ -133,7 +136,7 @@ def export_to_gcs(jobs, bucket_name, date_min=None, date_max=None):
 
     fs = gcsfs.GCSFileSystem()
     df.to_parquet(gcs_path, engine="pyarrow", index=False, filesystem=fs)
-    print(f"Export completed: {gcs_path}")
+    logger.info("export_completed", gcs_path=gcs_path, job_count=len(jobs))
 
 
 def main(
