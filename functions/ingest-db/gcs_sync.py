@@ -75,6 +75,9 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
     # Get latest batch files from GCS
     silver_keys = get_latest_batch_parquet_files(bucket_name, PREFIX_SILVER)
     gold_keys = get_latest_batch_parquet_files(bucket_name, PREFIX_GOLD)
+    logger.info("gcs_listing", silver_count=len(silver_keys), gold_count=len(gold_keys))
+    if gold_keys:
+        logger.info("gold_files", files=gold_keys)
 
     # Connect to Supabase
     conn = psycopg2.connect(
@@ -124,7 +127,12 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
     else:
         for gcs_path in gold_keys:
             logger.info("processing_gold", path=gcs_path)
-            df_gold = read_parquet_from_gcs(gcs_path)
+            try:
+                df_gold = read_parquet_from_gcs(gcs_path)
+                logger.info("gold_read", path=gcs_path, shape=list(df_gold.shape), columns=list(df_gold.columns))
+            except Exception as e:
+                logger.error("gold_read_failed", path=gcs_path, error=str(e), error_type=type(e).__name__)
+                raise
             df_gold = df_gold[["job_id", "embedding"]]
 
             df_gold["embedding"] = df_gold["embedding"].apply(

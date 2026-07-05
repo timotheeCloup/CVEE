@@ -7,3 +7,4 @@ gcsfs>=2024.2.0
 sentence-transformers>=2.2.2
 torch>=2.0.0
 google-cloud-secret-manager>=2.0.0
+structlog>=24.0.0

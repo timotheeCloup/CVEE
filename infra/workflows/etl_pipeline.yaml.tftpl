@@ -62,6 +62,6 @@ main:
     - finalize:
         return: $${ingest_result.code}
     - pipeline_failed:
-        raise: $${"ETL failed at api-to-gcs step: HTTP " + string(api_result.code)}
+        raise: '$${"ETL failed at api-to-gcs step: HTTP " + string(api_result.code)}'
     - ingest_failed:
-        raise: $${"ETL failed at pipeline step: HTTP " + string(pipeline_result.code)}
+        raise: '$${"ETL failed at pipeline step: HTTP " + string(pipeline_result.code)}'
