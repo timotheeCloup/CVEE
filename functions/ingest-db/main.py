@@ -1,9 +1,19 @@
 import asyncio
 
 import functions_framework
+import structlog
 from cleanup import cleanup_dead_jobs_main
 from gcs_sync import main as ingest_db_main
 from shared.config import get_config
+
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.JSONRenderer(),
+    ]
+)
+logger = structlog.get_logger()
 
 
 @functions_framework.http
@@ -16,16 +26,11 @@ def ingest_db_cf(request):
     Returns:
         Tuple (response_body, status_code).
     """
-    """
-    Cloud Function: ingest silver + gold from GCS → Supabase + cleanup dead offers.
-    Triggered by Cloud Scheduler (nightly, after Databricks pipeline).
-    """
     try:
-        print("Starting ingest-db Cloud Function")
+        logger.info("starting_ingest_db")
         config = get_config()
 
-        # Step 1: Ingest silver + gold from GCS into Supabase
-        print("\n### STEP 1: INGESTION (GCS → Supabase) ###")
+        logger.info("step_ingestion")
         ingest_db_main(
             bucket_name=config["GCS_BUCKET_NAME"],
             sb_host=config["SB_HOST"],
@@ -35,14 +40,12 @@ def ingest_db_cf(request):
             sb_name=config["SB_NAME"],
         )
 
-        # Step 2: Cleanup dead jobs
-        print("\n### STEP 2: CLEANUP ###")
+        logger.info("step_cleanup")
         cleanup_result = asyncio.run(cleanup_dead_jobs_main(config))
 
-        print("ingest-db Cloud Function completed successfully")
+        logger.info("ingest_db_completed", deleted_count=cleanup_result.get("deleted_count"))
         return {"status": "success", "cleanup_result": cleanup_result}, 200
 
-    except Exception as e:
-        error_msg = f"Error in ingest-db Cloud Function: {str(e)}"
-        print(error_msg)
-        return {"status": "error", "message": error_msg}, 500
+    except Exception:
+        logger.exception("ingest_db_failed")
+        return {"status": "error", "message": "Internal server error"}, 500

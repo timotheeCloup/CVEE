@@ -1,6 +1,16 @@
 import functions_framework
+import structlog
 from core import run_pipeline
 from shared.config import get_config
+
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.JSONRenderer(),
+    ]
+)
+logger = structlog.get_logger()
 
 
 @functions_framework.http
@@ -13,42 +23,32 @@ def pipeline_cf(request):
     Returns:
         Tuple (response_body, status_code).
     """
-    """
-    Cloud Function: Bronze (raw) → Silver + Gold.
-    Triggered by Cloud Scheduler (nightly, after api-to-gcs-cf).
-
-    Query params:
-    - ?days=N      → process last N days of raw files (deduplicated)
-    - ?max_jobs=N  → limit jobs processed (for fast tests)
-    - no params    → process latest raw file only (daily mode)
-    """
     try:
-        print("Starting pipeline Cloud Function")
+        logger.info("starting_pipeline_cf")
         config = get_config()
         bucket_name = config["GCS_BUCKET_NAME"]
 
         days = request.args.get("days")
         if days:
             days = int(days)
-            print(f"Backfill mode: last {days} days")
+            logger.info("backfill_mode", days=days)
         else:
-            print("Daily mode: latest raw file only")
+            logger.info("daily_mode")
 
         max_jobs = request.args.get("max_jobs")
         if max_jobs:
             max_jobs = int(max_jobs)
-            print(f"Max jobs limit: {max_jobs}")
+            logger.info("max_jobs_limit", max_jobs=max_jobs)
 
         silver_path, gold_path = run_pipeline(bucket_name, days=days, max_jobs=max_jobs)
 
         if silver_path is None:
-            print("Pipeline produced no output.")
+            logger.info("pipeline_no_output")
             return {"status": "no_data"}, 200
 
-        print(f"Pipeline completed successfully: {silver_path}, {gold_path}")
+        logger.info("pipeline_completed", silver=silver_path, gold=gold_path)
         return {"status": "success", "silver": silver_path, "gold": gold_path}, 200
 
-    except Exception as e:
-        error_msg = f"Error in pipeline Cloud Function: {str(e)}"
-        print(error_msg)
-        return {"status": "error", "message": error_msg}, 500
+    except Exception:
+        logger.exception("pipeline_cf_failed")
+        return {"status": "error", "message": "Internal server error"}, 500

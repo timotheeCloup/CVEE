@@ -1,8 +1,18 @@
 from datetime import datetime, timedelta
 
 import functions_framework
+import structlog
 from ft_client import main as fetch_and_store
 from shared.config import get_config
+
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.JSONRenderer(),
+    ]
+)
+logger = structlog.get_logger()
 
 
 @functions_framework.http
@@ -16,19 +26,8 @@ def api_to_gcs_cf(request):
     Returns:
         Tuple (response_body, status_code).
     """
-    """
-    Cloud Function: fetch France Travail jobs → store in GCS.
-
-    Query params:
-    - No params            → daily mode (publieeDepuis=1, last 24h)
-    - ?max_results=N       → quick test: fetch up to N jobs from last 30 days
-    - ?date_min=YYYY-MM-DD&date_max=YYYY-MM-DD            → backfill by date range
-    - ?date_min=YYYY-MM-DD&date_max=YYYY-MM-DD&max_results=N  → backfill + limit
-
-    Note: publieeDepuis > 1 is broken on FT API side, only =1 works.
-    """
     try:
-        print("Starting api-to-gcs Cloud Function")
+        logger.info("starting_api_to_gcs")
         config = get_config()
 
         date_min = request.args.get("date_min")
@@ -38,7 +37,7 @@ def api_to_gcs_cf(request):
             max_results = int(max_results)
 
         if date_min and date_max:
-            print(f"Backfill mode: {date_min} → {date_max}")
+            logger.info("backfill_mode", date_min=date_min, date_max=date_max)
             fetch_and_store(
                 ft_client_id=config["FT_CLIENT_ID"],
                 ft_client_secret=config["FT_CLIENT_SECRET"],
@@ -50,8 +49,8 @@ def api_to_gcs_cf(request):
         elif max_results:
             today = datetime.now().strftime("%Y-%m-%d")
             thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-            print(
-                f"Quick test mode: last 30 days ({thirty_days_ago} → {today}), max {max_results} jobs"
+            logger.info(
+                "quick_test_mode", date_min=thirty_days_ago, date_max=today, max_results=max_results
             )
             fetch_and_store(
                 ft_client_id=config["FT_CLIENT_ID"],
@@ -62,7 +61,7 @@ def api_to_gcs_cf(request):
                 max_results=max_results,
             )
         else:
-            print("Daily mode: publiee_depuis=1")
+            logger.info("daily_mode", publiee_depuis=1)
             fetch_and_store(
                 ft_client_id=config["FT_CLIENT_ID"],
                 ft_client_secret=config["FT_CLIENT_SECRET"],
@@ -71,10 +70,9 @@ def api_to_gcs_cf(request):
                 max_results=max_results,
             )
 
-        print("api-to-gcs Cloud Function completed successfully")
+        logger.info("api_to_gcs_completed")
         return "OK", 200
 
-    except Exception as e:
-        error_msg = f"Error in api-to-gcs Cloud Function: {str(e)}"
-        print(error_msg)
-        return error_msg, 500
+    except Exception:
+        logger.exception("api_to_gcs_failed")
+        return "Internal server error", 500

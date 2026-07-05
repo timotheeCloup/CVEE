@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import gcsfs
 import numpy as np
 import polars as pl
+import structlog
 import torch
 from sentence_transformers import SentenceTransformer
 
@@ -15,6 +16,8 @@ os.environ["TRANSFORMERS_CACHE"] = "/tmp/huggingface"
 os.makedirs("/tmp/huggingface", exist_ok=True)
 
 torch.set_num_threads(1)
+
+logger = structlog.get_logger()
 
 MODEL_NAME = "antoinelouis/french-me5-small"
 BATCH_SIZE = 32
@@ -188,36 +191,38 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     force    → skip Databricks check and run unconditionally
     """
     if not force and _databricks_already_produced(bucket_name):
-        print("Databricks already produced today's silver batch — skipping GCP pipeline.")
+        logger.info("databricks_skip")
         return None, None
 
     raw_files = _list_raw_files(bucket_name, days=days)
     if not raw_files:
-        print("No raw files found. Aborting.")
+        logger.info("no_raw_files")
         return None, None
 
     mode = f"last {days} days" if days else "daily (latest file)"
-    print(f"Pipeline mode: {mode} — {len(raw_files)} raw file(s)")
+    logger.info("pipeline_mode", mode=mode, file_count=len(raw_files))
 
     dfs = []
     for rf in raw_files:
-        print(f"  Loading {rf}")
+        logger.info("loading_raw", file=rf)
         dfs.append(pl.read_parquet(rf, use_pyarrow=True))
     df = pl.concat(dfs, how="vertical")
     total_before = df.height
     df = _deduplicate(df)
     total_after = df.height
     if total_before != total_after:
-        print(
-            f"  Deduplication: {total_before - total_after} duplicates removed ({total_after} kept)"
+        logger.info(
+            "deduplication",
+            removed=total_before - total_after,
+            kept=total_after,
         )
-    print(f"  {total_after} unique jobs loaded")
+    logger.info("jobs_loaded", count=total_after)
 
     if max_jobs and max_jobs < total_after:
-        print(f"  Limiting to {max_jobs} jobs (was {total_after})")
+        logger.info("limiting_jobs", limit=max_jobs, total=total_after)
         df = df.head(max_jobs)
 
-    print("2. Cleaning HTML...")
+    logger.info("step_clean_html")
     if "description" in df.columns:
         df = df.with_columns(
             pl.col("description")
@@ -227,7 +232,7 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     else:
         df = df.with_columns(pl.lit("").alias("description_clean"))
 
-    print("3. Aggregating competences/formations/qualites...")
+    logger.info("step_aggregate")
     competences_text = df["competences"].map_elements(
         lambda x: _extract_field(x, "libelle"), return_dtype=pl.String
     )
@@ -256,15 +261,15 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
         .alias("vector_text_input")
     )
 
-    print(f"4. Generating embeddings with {MODEL_NAME}...")
+    logger.info("step_embeddings", model=MODEL_NAME)
     model = SentenceTransformer(MODEL_NAME, device="cpu")
     texts = df["vector_text_input"].fill_null("").to_list()
     embeddings = model.encode(
         texts, batch_size=BATCH_SIZE, show_progress_bar=True, convert_to_numpy=True
     )
-    print(f"   {len(embeddings)} embeddings ({embeddings.shape[1]} dims)")
+    logger.info("embeddings_generated", count=len(embeddings), dims=embeddings.shape[1])
 
-    print("5. Building silver layer...")
+    logger.info("step_silver")
     df_silver = df.clone()
     df_silver = df_silver.with_columns(pl.col("id").cast(pl.String).alias("job_id"))
     df_silver = df_silver.drop(["id", "description"])
@@ -279,7 +284,7 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
                 pl.col(col).map_elements(serialize_json_col, return_dtype=pl.String).alias(col)
             )
 
-    print("6. Building gold layer...")
+    logger.info("step_gold")
     df_gold = pl.DataFrame(
         {
             "job_id": df_silver["job_id"].to_list(),
@@ -287,7 +292,7 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
         }
     )
 
-    print("7. Writing to GCS...")
+    logger.info("step_write")
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     silver_path = f"gs://{bucket_name}/{PREFIX_SILVER}/jobs_silver_{ts}.parquet"
     gold_path = f"gs://{bucket_name}/{PREFIX_GOLD}/jobs_gold_{ts}.parquet"
@@ -295,8 +300,12 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     df_silver.write_parquet(silver_path)
     df_gold.write_parquet(gold_path)
 
-    print(f"   Silver: {silver_path}  ({df_silver.height} jobs)")
-    print(f"   Gold:   {gold_path}  ({df_gold.height} jobs)")
-    print("Pipeline completed successfully.")
+    logger.info(
+        "silver_written", path=silver_path, count=df_silver.height
+    )
+    logger.info(
+        "gold_written", path=gold_path, count=df_gold.height
+    )
+    logger.info("pipeline_success")
 
     return silver_path, gold_path
