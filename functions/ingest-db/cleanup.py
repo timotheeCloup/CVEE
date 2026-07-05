@@ -183,9 +183,7 @@ async def cleanup_dead_jobs_main(secrets):
     logger.info("cleanup_step_retrieve_ids")
     job_ids = get_all_job_ids(db_host, db_port, db_user, db_password, db_name)
     t1 = time.time()
-    logger.info(
-        "cleanup_retrieved_ids", count=len(job_ids), duration=f"{t1 - t0:.2f}s"
-    )
+    logger.info("cleanup_retrieved_ids", count=len(job_ids), duration=f"{t1 - t0:.2f}s")
 
     if not job_ids:
         logger.info("cleanup_no_jobs")

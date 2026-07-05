@@ -300,12 +300,8 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     df_silver.write_parquet(silver_path)
     df_gold.write_parquet(gold_path)
 
-    logger.info(
-        "silver_written", path=silver_path, count=df_silver.height
-    )
-    logger.info(
-        "gold_written", path=gold_path, count=df_gold.height
-    )
+    logger.info("silver_written", path=silver_path, count=df_silver.height)
+    logger.info("gold_written", path=gold_path, count=df_gold.height)
     logger.info("pipeline_success")
 
     return silver_path, gold_path
