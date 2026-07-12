@@ -1,3 +1,31 @@
+# ── Artifact Registry for Cloud Functions build images ──
+# By default GCF gen2 auto-creates a "gcf-artifacts" repo with NO cleanup policy,
+# so every deploy leaves old build images + build cache behind (multiple GB over time).
+# We point every function at this self-managed repo which keeps only the latest
+# build image per function, capping Artifact Registry storage.
+resource "google_artifact_registry_repository" "functions" {
+  location      = var.region
+  repository_id = "cvee-functions"
+  format        = "DOCKER"
+  project       = var.project_id
+  description   = "Cloud Functions gen2 build images (cost-capped, keep latest only)"
+
+  cleanup_policies {
+    id     = "keep-latest"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = 1
+    }
+  }
+  cleanup_policies {
+    id     = "delete-old"
+    action = "DELETE"
+    condition {
+      older_than = "86400s"
+    }
+  }
+}
+
 # ── Zip function sources ──
 data "archive_file" "api_to_gcs_source" {
   type        = "zip"
@@ -47,8 +75,9 @@ resource "google_cloudfunctions2_function" "api_to_gcs" {
   description = "Fetch France Travail jobs → GCS (daily 21:00)"
 
   build_config {
-    runtime     = "python312"
-    entry_point = "api_to_gcs_cf"
+    runtime           = "python312"
+    entry_point       = "api_to_gcs_cf"
+    docker_repository = google_artifact_registry_repository.functions.id
     source {
       storage_source {
         bucket = google_storage_bucket.data.name
@@ -72,8 +101,9 @@ resource "google_cloudfunctions2_function" "pipeline" {
   description = "Bronze→Silver→Gold ETL (daily 21:30)"
 
   build_config {
-    runtime     = "python312"
-    entry_point = "pipeline_cf"
+    runtime           = "python312"
+    entry_point       = "pipeline_cf"
+    docker_repository = google_artifact_registry_repository.functions.id
     source {
       storage_source {
         bucket = google_storage_bucket.data.name
@@ -97,8 +127,9 @@ resource "google_cloudfunctions2_function" "ingest_db" {
   description = "GCS → Supabase + cleanup (daily 23:30)"
 
   build_config {
-    runtime     = "python312"
-    entry_point = "ingest_db_cf"
+    runtime           = "python312"
+    entry_point       = "ingest_db_cf"
+    docker_repository = google_artifact_registry_repository.functions.id
     source {
       storage_source {
         bucket = google_storage_bucket.data.name
