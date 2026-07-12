@@ -208,7 +208,7 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
         logger.info("loading_raw", file=rf)
         with fs.open(rf, "rb") as f:
             dfs.append(pl.read_parquet(f, use_pyarrow=True))
-    df = pl.concat(dfs, how="vertical")
+    df = pl.concat(dfs, how="diagonal_relaxed")
     total_before = df.height
     df = _deduplicate(df)
     total_after = df.height
