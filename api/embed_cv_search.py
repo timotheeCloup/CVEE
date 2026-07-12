@@ -6,28 +6,76 @@ import time
 from typing import Any
 
 import aiohttp
+import numpy as np
+import numpy.typing as npt
+import onnxruntime as ort
 import structlog
-import torch
+from tokenizers import Tokenizer
 from utils import search_jobs_vector_hybrid
 
 logger: Any = structlog.get_logger()
 
-torch.set_num_threads(1)
-
+# ONNX model exported from this SentenceTransformer at Docker build time.
 MODEL_NAME: str = "antoinelouis/french-me5-small"
-_device: str = "cpu"
-_model: Any = None
+MAX_SEQ_LENGTH: int = 512
+MODEL_DIR: str = os.getenv("ONNX_MODEL_DIR", os.path.join(os.path.dirname(__file__), "onnx_model"))
 
 
-def _get_model() -> Any:
-    global _model
-    if _model is None:
+class OnnxEncoder:
+    """SentenceTransformer.encode replacement backed by onnxruntime.
+
+    Reproduces the model's sentence-embedding pipeline exactly:
+    tokenize -> transformer -> attention-masked mean pooling -> L2 normalize.
+    This yields embeddings identical to the SentenceTransformer model that
+    generated the job embeddings stored in the DB (verified: cosine ~1.0),
+    while dropping the torch / sentence-transformers runtime dependencies to
+    slash cold-start time and image size.
+    """
+
+    def __init__(self, session: Any, tokenizer: Any) -> None:
+        self._session = session
+        self._tokenizer = tokenizer
+        self._input_names = {i.name for i in session.get_inputs()}
+
+    def encode(self, text: str) -> npt.NDArray[np.float32]:
+        encoded = self._tokenizer.encode(text)
+        ids: npt.NDArray[np.int64] = np.array([encoded.ids], dtype=np.int64)
+        mask: npt.NDArray[np.int64] = np.array([encoded.attention_mask], dtype=np.int64)
+        feed: dict[str, npt.NDArray[np.int64]] = {"input_ids": ids, "attention_mask": mask}
+        if "token_type_ids" in self._input_names:
+            feed["token_type_ids"] = np.zeros_like(ids)
+
+        last_hidden: npt.NDArray[np.float32] = np.asarray(
+            self._session.run(None, feed)[0], dtype=np.float32
+        )
+        mask_f = mask[:, :, None].astype(np.float32)
+        summed = (last_hidden * mask_f).sum(axis=1)
+        counts = np.clip(mask_f.sum(axis=1), 1e-9, None)
+        mean = summed / counts
+        normed = mean / np.clip(np.linalg.norm(mean, axis=1, keepdims=True), 1e-12, None)
+        return np.asarray(normed[0], dtype=np.float32)
+
+
+_encoder: OnnxEncoder | None = None
+
+
+def _get_model() -> OnnxEncoder:
+    global _encoder
+    if _encoder is None:
         t0 = time.time()
-        from sentence_transformers import SentenceTransformer
-
-        _model = SentenceTransformer(MODEL_NAME, device=_device)
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+        session = ort.InferenceSession(
+            os.path.join(MODEL_DIR, "model.onnx"),
+            sess_options=options,
+            providers=["CPUExecutionProvider"],
+        )
+        tokenizer = Tokenizer.from_file(os.path.join(MODEL_DIR, "tokenizer.json"))
+        tokenizer.enable_truncation(max_length=MAX_SEQ_LENGTH)
+        _encoder = OnnxEncoder(session, tokenizer)
         logger.info("model_loaded", cold_start_duration=round(time.time() - t0, 2))
-    return _model
+    return _encoder
 
 
 def load_french_stopwords() -> set[str]:
