@@ -16,7 +16,7 @@ TOP_K: int = 100
 RRF_K: int = 60
 
 # Title weight in RRF: title score counts TITLE_WEIGHT times more than embedding/FTS
-TITLE_WEIGHT: float = 3.0
+TITLE_WEIGHT: float = 4.0
 
 # Theoretical max RRF score: job ranked #1 in all 3 dimensions
 # score = sum(weight / (RRF_K + rank)) for embed(1), fts(1), title(TITLE_WEIGHT)
