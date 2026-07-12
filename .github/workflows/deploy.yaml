@@ -32,9 +32,10 @@ jobs:
 
       - name: Build and push API
         run: |
-          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-api:${{ github.sha }}
-          docker build -t $IMAGE -f api/Dockerfile api/
-          docker push $IMAGE
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-api
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest -f api/Dockerfile api/
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
 
       - name: Deploy API to Cloud Run
         run: |
@@ -69,9 +70,10 @@ jobs:
 
       - name: Build and push UI
         run: |
-          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-ui:${{ github.sha }}
-          docker build -t $IMAGE -f ui/Dockerfile ui/
-          docker push $IMAGE
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-ui
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest -f ui/Dockerfile ui/
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
 
       - name: Deploy UI to Cloud Run
         run: |

@@ -4,6 +4,25 @@ resource "google_artifact_registry_repository" "cvee" {
   repository_id = "cvee"
   format        = "DOCKER"
   project       = var.project_id
+
+  cleanup_policy_dry_run = false
+
+  cleanup_policies {
+    id     = "delete-untagged"
+    action = "DELETE"
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "86400s"
+    }
+  }
+
+  cleanup_policies {
+    id     = "keep-recent-tagged"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
 }
 
 # ── Cloud Run: API (FastAPI) ──
