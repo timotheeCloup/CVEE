@@ -47,6 +47,7 @@ jobs:
             --allow-unauthenticated \
             --cpu=1 \
             --memory=2Gi \
+            --cpu-boost \
             --timeout=120s \
             --max-instances=1
 

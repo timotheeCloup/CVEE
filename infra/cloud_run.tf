@@ -59,6 +59,10 @@ resource "google_cloud_run_v2_service" "api" {
           cpu    = "1"
           memory = "2048Mi"
         }
+        # Temporarily grant extra CPU during container startup so the
+        # SentenceTransformer model loads faster on cold start (scale-to-zero).
+        # No standing cost: stays compatible with the always-free tier.
+        startup_cpu_boost = true
       }
     }
     timeout = "300s"
