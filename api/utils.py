@@ -133,7 +133,7 @@ async def search_jobs_vector_hybrid(
                 js.dateCreation,
                 ROW_NUMBER() OVER (ORDER BY (1 - (jg.embedding <-> %s)) DESC) as embed_rank,
                 ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0) DESC) as fts_rank,
-                ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(to_tsvector('french', js.intitule), to_tsquery('french', %s), 2), 0) DESC) as title_rank
+                ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(js.title_tsv, to_tsquery('french', %s), 2), 0) DESC) as title_rank
             FROM jobs_gold jg
             JOIN jobs_silver js ON jg.job_id = js.job_id
             WHERE jg.fts_tokens IS NOT NULL
@@ -165,6 +165,10 @@ async def search_jobs_vector_hybrid(
 
         async with conn.cursor() as cur:
             try:
+                # Keep the 3 ranking sorts (embedding, FTS, title over the full
+                # corpus) in memory instead of spilling to disk. Scoped to this
+                # transaction via SET LOCAL, so it never leaks to pooled sessions.
+                await cur.execute("SET LOCAL work_mem = '64MB'")
                 await cur.execute(
                     sql,
                     (
