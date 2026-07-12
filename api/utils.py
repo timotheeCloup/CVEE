@@ -115,12 +115,13 @@ async def search_jobs_vector_hybrid(
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
         fts_weights_literal = _build_fts_weights_literal()
 
+        # Two-stage query: (1) rank all jobs by RRF and keep the top-K, then
+        # (2) compute the expensive ts_headline snippet ONLY on those K rows.
+        # ts_headline does not influence ranking (it only feeds keyword
+        # highlighting), so restricting it to the final top-K is result-preserving
+        # while avoiding highlighting the full corpus on every request.
         sql = """
-        SELECT
-            job_id, embedding_score, fts_score,
-            (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank) + %s * 1.0 / (%s + title_rank))::float8 as combined_score,
-            intitule, entreprise, lieu, typeContratLibelle, dateCreation, headline
-        FROM (
+        WITH ranked AS (
             SELECT
                 jg.job_id,
                 (1 - (jg.embedding <-> %s))::float8 as embedding_score,
@@ -130,23 +131,36 @@ async def search_jobs_vector_hybrid(
                 js.lieuTravail->>'libelle' AS lieu,
                 js.typeContratLibelle,
                 js.dateCreation,
-                ts_headline('french',
-                    js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
-                    COALESCE((SELECT string_agg(elem->>'libelle', ' ')
-                              FROM jsonb_array_elements(js.competences) AS elem), '') || ' ' ||
-                    COALESCE((SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
-                              FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
-                    to_tsquery('french', %s),
-                    'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline,
                 ROW_NUMBER() OVER (ORDER BY (1 - (jg.embedding <-> %s)) DESC) as embed_rank,
                 ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0) DESC) as fts_rank,
                 ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(to_tsvector('french', js.intitule), to_tsquery('french', %s), 2), 0) DESC) as title_rank
             FROM jobs_gold jg
             JOIN jobs_silver js ON jg.job_id = js.job_id
             WHERE jg.fts_tokens IS NOT NULL
-        ) ranked
-        ORDER BY combined_score DESC
-        LIMIT %s;
+        ),
+        top_ranked AS (
+            SELECT
+                job_id, embedding_score, fts_score,
+                (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank) + %s * 1.0 / (%s + title_rank))::float8 as combined_score,
+                intitule, entreprise, lieu, typeContratLibelle, dateCreation
+            FROM ranked
+            ORDER BY combined_score DESC
+            LIMIT %s
+        )
+        SELECT
+            t.job_id, t.embedding_score, t.fts_score, t.combined_score,
+            t.intitule, t.entreprise, t.lieu, t.typeContratLibelle, t.dateCreation,
+            ts_headline('french',
+                js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
+                COALESCE((SELECT string_agg(elem->>'libelle', ' ')
+                          FROM jsonb_array_elements(js.competences) AS elem), '') || ' ' ||
+                COALESCE((SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
+                          FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
+                to_tsquery('french', %s),
+                'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline
+        FROM top_ranked t
+        JOIN jobs_silver js ON js.job_id = t.job_id
+        ORDER BY t.combined_score DESC;
         """
 
         async with conn.cursor() as cur:
@@ -154,19 +168,19 @@ async def search_jobs_vector_hybrid(
                 await cur.execute(
                     sql,
                     (
+                        embedding_str,
+                        fts_weights_literal,
+                        tsquery,
+                        embedding_str,
+                        fts_weights_literal,
+                        tsquery,
+                        tsquery,
                         RRF_K,
                         RRF_K,
                         TITLE_WEIGHT,
                         RRF_K,
-                        embedding_str,
-                        fts_weights_literal,
-                        tsquery,
-                        tsquery,
-                        embedding_str,
-                        fts_weights_literal,
-                        tsquery,
-                        tsquery,
                         TOP_K,
+                        tsquery,
                     ),
                 )
                 results = await cur.fetchall()
