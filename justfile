@@ -5,6 +5,8 @@ PROJECT := "cvee-20260208"
 REGION := "us-east1"
 CR_REGION := "europe-west1"
 AR := "europe-west1-docker.pkg.dev/" + PROJECT + "/cvee"
+# Self-managed AR repo for Cloud Functions builds (keep-latest cleanup policy, see infra/cloud_functions.tf)
+AR_FUNCTIONS := "projects/" + PROJECT + "/locations/" + REGION + "/repositories/cvee-functions"
 
 # ── Cloud Run ──
 
@@ -35,6 +37,7 @@ cf-api:
         --runtime=python312 --entry-point=api_to_gcs_cf \
         --trigger-http --allow-unauthenticated \
         --memory=512M --timeout=540s --max-instances=1 \
+        --docker-repository={{AR_FUNCTIONS}} \
         --source=functions/api-to-gcs
 
 # Deploy pipeline-cf
@@ -44,6 +47,7 @@ cf-pipeline:
         --runtime=python312 --entry-point=pipeline_cf \
         --trigger-http --allow-unauthenticated \
         --memory=2048M --timeout=3600s --max-instances=1 \
+        --docker-repository={{AR_FUNCTIONS}} \
         --source=functions/pipeline
 
 # Deploy ingest-db-cf
@@ -53,6 +57,7 @@ cf-ingest:
         --runtime=python312 --entry-point=ingest_db_cf \
         --trigger-http --allow-unauthenticated \
         --memory=1024M --timeout=3600s --max-instances=1 \
+        --docker-repository={{AR_FUNCTIONS}} \
         --source=functions/ingest-db
 
 # Deploy all 3 CFs

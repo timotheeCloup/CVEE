@@ -5,22 +5,21 @@ resource "google_artifact_registry_repository" "cvee" {
   format        = "DOCKER"
   project       = var.project_id
 
-  cleanup_policy_dry_run = false
-
+  # Cost optimisation: keep only the latest image per package (api/ui).
+  # KEEP always wins over DELETE, so the most recent version is never removed;
+  # anything else older than 1 day is purged automatically.
   cleanup_policies {
-    id     = "delete-untagged"
-    action = "DELETE"
-    condition {
-      tag_state  = "UNTAGGED"
-      older_than = "86400s"
-    }
-  }
-
-  cleanup_policies {
-    id     = "keep-recent-tagged"
+    id     = "keep-latest"
     action = "KEEP"
     most_recent_versions {
-      keep_count = 3
+      keep_count = 1
+    }
+  }
+  cleanup_policies {
+    id     = "delete-old"
+    action = "DELETE"
+    condition {
+      older_than = "86400s"
     }
   }
 }
