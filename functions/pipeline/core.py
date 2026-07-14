@@ -202,11 +202,13 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     mode = f"last {days} days" if days else "daily (latest file)"
     logger.info("pipeline_mode", mode=mode, file_count=len(raw_files))
 
+    fs = gcsfs.GCSFileSystem()
     dfs = []
     for rf in raw_files:
         logger.info("loading_raw", file=rf)
-        dfs.append(pl.read_parquet(rf, use_pyarrow=True))
-    df = pl.concat(dfs, how="vertical")
+        with fs.open(rf, "rb") as f:
+            dfs.append(pl.read_parquet(f, use_pyarrow=True))
+    df = pl.concat(dfs, how="diagonal_relaxed")
     total_before = df.height
     df = _deduplicate(df)
     total_after = df.height
@@ -297,8 +299,10 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
     silver_path = f"gs://{bucket_name}/{PREFIX_SILVER}/jobs_silver_{ts}.parquet"
     gold_path = f"gs://{bucket_name}/{PREFIX_GOLD}/jobs_gold_{ts}.parquet"
 
-    df_silver.write_parquet(silver_path)
-    df_gold.write_parquet(gold_path)
+    with fs.open(silver_path, "wb") as f:
+        df_silver.write_parquet(f)
+    with fs.open(gold_path, "wb") as f:
+        df_gold.write_parquet(f)
 
     logger.info("silver_written", path=silver_path, count=df_silver.height)
     logger.info("gold_written", path=gold_path, count=df_gold.height)

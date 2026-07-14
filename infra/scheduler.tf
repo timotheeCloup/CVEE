@@ -11,9 +11,11 @@ resource "google_cloud_scheduler_job" "etl_workflow" {
     http_method = "POST"
     uri         = "https://workflowexecutions.googleapis.com/v1/${google_workflows_workflow.etl_pipeline.id}/executions"
 
-    oidc_token {
+    # Google APIs (workflowexecutions.googleapis.com) require an OAuth token,
+    # not an OIDC token. Using OIDC here returns 401 UNAUTHENTICATED.
+    oauth_token {
       service_account_email = local.service_account_email
-      audience              = "https://workflowexecutions.googleapis.com/"
+      scope                 = "https://www.googleapis.com/auth/cloud-platform"
     }
   }
 }
