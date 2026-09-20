@@ -4,9 +4,9 @@ Runs the real ``functions/ingest-db/gcs_sync.main`` insert path against a local
 pgvector database (``docker compose up -d postgres``), using a small, chosen
 subset of the latest GCS silver/gold batch. Nothing is written to Supabase.
 
-The local schema mirrors prod (including the ``fts_tokens`` column and the
-``tr_update_gold_fts`` trigger, which are not covered by the Alembic
-migrations yet), so the batching change is exercised exactly as in prod.
+The local schema is built by ``alembic upgrade head``, so the sandbox runs
+against exactly the schema the migrations define (including the
+``fts_tokens`` column and the ``tr_update_gold_fts`` trigger).
 
 Usage:
     docker compose up -d postgres
@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -23,6 +24,8 @@ from urllib.parse import urlparse
 import gcsfs
 import pandas as pd
 import psycopg2
+from alembic import command
+from alembic.config import Config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CF_DIR = REPO_ROOT / "functions" / "ingest-db"
@@ -32,115 +35,6 @@ import gcs_sync  # noqa: E402
 
 BUCKET = "cvee-20260208"
 DEFAULT_DSN = "postgresql://postgres:postgres@localhost:5433/cvee_db"
-
-SCHEMA_SQL = """
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS unaccent;
-
-CREATE TABLE jobs_silver (
-    job_id TEXT PRIMARY KEY,
-    intitule TEXT,
-    description TEXT,
-    vector_text_input TEXT,
-    dateCreation TEXT,
-    dateActualisation TEXT,
-    lieuTravail JSONB,
-    entreprise JSONB,
-    contact JSONB,
-    agence JSONB,
-    origineOffre JSONB,
-    contexteTravail JSONB,
-    salaire JSONB,
-    competences JSONB,
-    formations JSONB,
-    langues JSONB,
-    qualitesProfessionnelles JSONB,
-    permis JSONB,
-    romeCode TEXT,
-    romeLibelle TEXT,
-    appellationlibelle TEXT,
-    typeContrat TEXT,
-    typeContratLibelle TEXT,
-    natureContrat TEXT,
-    experienceExige TEXT,
-    experienceLibelle TEXT,
-    dureeTravailLibelle TEXT,
-    dureeTravailLibelleConverti TEXT,
-    alternance BOOLEAN,
-    nombrePostes INTEGER,
-    accessibleTH BOOLEAN,
-    qualificationCode TEXT,
-    qualificationLibelle TEXT,
-    codeNAF TEXT,
-    secteurActivite TEXT,
-    secteurActiviteLibelle TEXT,
-    trancheEffectifEtab TEXT,
-    offresManqueCandidats BOOLEAN,
-    entrepriseAdaptee BOOLEAN,
-    employeurHandiEngage BOOLEAN,
-    deplacementCode TEXT,
-    deplacementLibelle TEXT,
-    experienceCommentaire TEXT,
-    complementExercice TEXT,
-    ingestion_date DATE
-);
-
-CREATE TABLE jobs_gold (
-    job_id TEXT PRIMARY KEY,
-    embedding vector(384),
-    fts_tokens tsvector,
-    CONSTRAINT fk_job FOREIGN KEY (job_id)
-        REFERENCES jobs_silver(job_id) ON DELETE CASCADE
-);
-
-CREATE TABLE job_term_stats (
-    term TEXT PRIMARY KEY,
-    df INTEGER NOT NULL
-);
-
-CREATE OR REPLACE FUNCTION fn_fill_fts_from_silver() RETURNS trigger AS $$
-DECLARE
-    source_record RECORD;
-    clean_competences TEXT;
-    clean_qualites TEXT;
-BEGIN
-    SELECT intitule, description, competences, qualitesprofessionnelles
-    INTO source_record
-    FROM jobs_silver
-    WHERE job_id = NEW.job_id;
-
-    SELECT string_agg(elem->>'libelle', ' ')
-    INTO clean_competences
-    FROM jsonb_array_elements(source_record.competences) AS elem;
-
-    SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
-    INTO clean_qualites
-    FROM jsonb_array_elements(source_record.qualitesprofessionnelles) AS elem;
-
-    UPDATE jobs_gold
-    SET fts_tokens =
-        setweight(to_tsvector('french', unaccent(COALESCE(source_record.intitule, ''))), 'A') ||
-        setweight(to_tsvector('french', unaccent(COALESCE(source_record.description, ''))), 'B') ||
-        setweight(to_tsvector('french', unaccent(COALESCE(clean_competences, ''))), 'C') ||
-        setweight(to_tsvector('french', unaccent(COALESCE(clean_qualites, ''))), 'C')
-    WHERE job_id = NEW.job_id;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER tr_update_gold_fts AFTER INSERT ON jobs_gold
-FOR EACH ROW EXECUTE FUNCTION fn_fill_fts_from_silver();
-
-CREATE OR REPLACE FUNCTION refresh_job_term_stats() RETURNS void AS $$
-BEGIN
-    DELETE FROM job_term_stats;
-    INSERT INTO job_term_stats (term, df)
-    SELECT word, ndoc
-    FROM ts_stat('SELECT fts_tokens FROM jobs_gold WHERE fts_tokens IS NOT NULL');
-END;
-$$ LANGUAGE plpgsql;
-"""
 
 
 def parse_dsn(dsn):
@@ -154,13 +48,28 @@ def parse_dsn(dsn):
     }
 
 
-def reset_schema(conn):
+def run_migrations(creds):
+    os.environ.update(
+        {
+            "DB_HOST": creds["host"],
+            "DB_PORT": str(creds["port"]),
+            "DB_USER": creds["user"],
+            "DB_PASSWORD": creds["password"],
+            "DB_NAME": creds["name"],
+        }
+    )
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    command.upgrade(cfg, "head")
+
+
+def reset_schema(conn, creds):
     with conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS jobs_gold CASCADE;")
         cur.execute("DROP TABLE IF EXISTS jobs_silver CASCADE;")
         cur.execute("DROP TABLE IF EXISTS job_term_stats CASCADE;")
-        cur.execute(SCHEMA_SQL)
+        cur.execute("DROP TABLE IF EXISTS alembic_version CASCADE;")
     conn.commit()
+    run_migrations(creds)
 
 
 def build_subset(limit, job_ids):
@@ -245,7 +154,7 @@ def main():
         password=creds["password"],
         dbname=creds["name"],
     )
-    reset_schema(conn)
+    reset_schema(conn, creds)
 
     print("--- run 1 ---")
     gcs_sync.main(
