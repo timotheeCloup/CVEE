@@ -35,11 +35,13 @@ def upgrade() -> None:
 
     # Rebuild the stats from jobs_gold. Cheap on the current corpus size and
     # called once per ingest run, so the table never needs manual maintenance.
+    # DELETE (not TRUNCATE) keeps the API reads non-blocking: TRUNCATE would take
+    # an ACCESS EXCLUSIVE lock and stall the search while the stats rebuild.
     op.execute(
         """
         CREATE OR REPLACE FUNCTION refresh_job_term_stats() RETURNS void AS $$
         BEGIN
-            TRUNCATE job_term_stats;
+            DELETE FROM job_term_stats;
             INSERT INTO job_term_stats (term, df)
             SELECT word, ndoc
             FROM ts_stat('SELECT fts_tokens FROM jobs_gold WHERE fts_tokens IS NOT NULL');
