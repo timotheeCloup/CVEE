@@ -1,4 +1,6 @@
-# Copy to terraform.tfvars and fill in the values.
+# Example only. This file is tracked by git, so never put real secrets here.
+# Copy it to terraform.tfvars (gitignored) and fill the values there:
+#   cp infra/dev/terraform.tfvars.example infra/dev/terraform.tfvars
 # The sb_* values are the same as infra/terraform.tfvars (Supabase prod).
 
 project_id   = "cvee-20260208"

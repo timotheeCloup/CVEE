@@ -44,6 +44,13 @@ resource "google_cloud_run_v2_service" "api_dev" {
       max_instance_count = 1
     }
   }
+
+  # The image is owned by CI (gcloud run deploy), not Terraform: only the
+  # initial bootstrap uses var.image_tag. Without this, any terraform apply
+  # would revert the image to the bootstrap tag.
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
 }
 
 # ── Cloud Run: dev UI (Streamlit) ──
@@ -69,6 +76,10 @@ resource "google_cloud_run_v2_service" "ui_dev" {
       min_instance_count = 0
       max_instance_count = 1
     }
+  }
+
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
   }
 }
 
