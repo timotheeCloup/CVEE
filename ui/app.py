@@ -11,7 +11,7 @@ st.set_page_config(page_title="CV Match Engine", layout="centered")
 
 API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
 HEALTH_URL = API_URL.rsplit("/embed-cv", 1)[0] + "/health"
-COLD_START_TIMEOUT = 25
+COLD_START_TIMEOUT = 10
 
 if "api_ready" not in st.session_state:
     st.session_state.api_ready = False
@@ -40,15 +40,22 @@ if not st.session_state.api_ready:
             status_text = st.empty()
 
             for elapsed in range(1, COLD_START_TIMEOUT + 1):
+                # ONNX runtime boots in a few seconds (no torch load), so poll
+                # health every second and stop as soon as the API answers
+                # instead of always waiting the full timeout.
+                ready = False
+                with contextlib.suppress(Exception):
+                    requests.get(HEALTH_URL, timeout=2)
+                    ready = True
+                if ready:
+                    progress_bar.progress(1.0)
+                    break
                 progress_bar.progress(elapsed / COLD_START_TIMEOUT)
                 pct = int(elapsed / COLD_START_TIMEOUT * 100)
                 status_text.markdown(
                     f"<p style='text-align:center;color:#667eea;'>{pct}%</p>",
                     unsafe_allow_html=True,
                 )
-                if elapsed % 5 == 1:
-                    with contextlib.suppress(Exception):
-                        requests.get(HEALTH_URL, timeout=2)
                 time.sleep(1)
 
             status_text.empty()
