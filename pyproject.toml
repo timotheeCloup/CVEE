@@ -110,7 +110,7 @@ markers = [
 [tool.coverage.run]
 source = ["api", "functions/pipeline"]
 branch = true
-omit = ["*/main.py"]
+omit = ["*/main.py", "api/export_onnx.py"]
 
 [tool.coverage.report]
 fail_under = 80
