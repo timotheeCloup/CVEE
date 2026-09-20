@@ -88,3 +88,9 @@ jobs:
 
       - name: Terraform validate
         run: terraform -chdir=infra validate
+
+      - name: Terraform init (dev)
+        run: terraform -chdir=infra/dev init -backend=false
+
+      - name: Terraform validate (dev)
+        run: terraform -chdir=infra/dev validate

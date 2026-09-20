@@ -1,0 +1,115 @@
+name: Deploy dev
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: deploy-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: cvee-20260208
+  REGION: europe-west1
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/1081304882492/locations/global/workloadIdentityPools/github-cd-pool/providers/github-cd-provider"
+          service_account: "github-actions-cd@cvee-20260208.iam.gserviceaccount.com"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ensure dev services exist
+        run: |
+          for svc in cvee-api-dev cvee-ui-dev; do
+            if ! gcloud run services describe "$svc" --region="$REGION" --project="$PROJECT" >/dev/null 2>&1; then
+              echo "::error::$svc not found. Bootstrap the dev environment first: just tf-dev"
+              exit 1
+            fi
+          done
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push API (dev)
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-api:dev
+          docker build -t $IMAGE -f api/Dockerfile api/
+          docker push $IMAGE
+
+      - name: Deploy dev API
+        run: |
+          gcloud run deploy cvee-api-dev \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-api:dev \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }} \
+            --cpu=1 \
+            --memory=2Gi \
+            --cpu-boost \
+            --timeout=300s \
+            --max-instances=1
+
+      - name: Build and push UI (dev)
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-ui:dev
+          docker build -t $IMAGE -f ui/Dockerfile ui/
+          docker push $IMAGE
+
+      - name: Deploy dev UI
+        run: |
+          gcloud run deploy cvee-ui-dev \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT }}/cvee/cvee-ui:dev \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT }} \
+            --cpu=1 \
+            --memory=512Mi \
+            --timeout=300s \
+            --max-instances=1
+
+      - name: Resolve dev UI URL
+        id: urls
+        run: |
+          UI_URL=$(gcloud run services describe cvee-ui-dev \
+            --region="$REGION" --project="$PROJECT" --format='value(status.url)')
+          echo "ui=$UI_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Comment dev environment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          UI_URL: ${{ steps.urls.outputs.ui }}
+        with:
+          script: |
+            const ui = process.env.UI_URL;
+            const body = [
+              '### Environnement dev déployé',
+              '',
+              `UI (privée) : \`${ui}\``,
+              '',
+              'Ouvrir en local :',
+              '```bash',
+              'gcloud run services proxy cvee-ui-dev --project cvee-20260208 --region europe-west1 --port 8080',
+              '```',
+              'Puis http://localhost:8080',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
