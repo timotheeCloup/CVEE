@@ -15,6 +15,32 @@ HEALTH_URL = API_URL.rsplit("/embed-cv", 1)[0] + "/health"
 COLD_START_TIMEOUT = 10
 DEPARTEMENTS_FILE = os.path.join(os.path.dirname(__file__), "departements.json")
 
+# When true, the API is a private Cloud Run service and requests must carry an
+# identity token (audience = API base URL). The token is fetched from the
+# metadata server, so this only works from inside Cloud Run.
+API_AUTH = os.getenv("API_AUTH", "").lower() in ("1", "true", "yes")
+_API_AUDIENCE = API_URL.rsplit("/embed-cv", 1)[0]
+_METADATA_IDENTITY_URL = (
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
+)
+
+
+def api_headers() -> dict:
+    """Return auth headers for the API, or {} when the API is public."""
+    if not API_AUTH:
+        return {}
+    try:
+        response = requests.get(
+            _METADATA_IDENTITY_URL,
+            params={"audience": _API_AUDIENCE},
+            headers={"Metadata-Flavor": "Google"},
+            timeout=2,
+        )
+        response.raise_for_status()
+        return {"Authorization": f"Bearer {response.text}"}
+    except Exception:
+        return {}
+
 
 @st.cache_data
 def load_departements() -> dict[str, str]:
@@ -32,12 +58,12 @@ if "api_ready" not in st.session_state:
 
 def _warmup_thread():
     with contextlib.suppress(Exception):
-        requests.get(HEALTH_URL, timeout=60)
+        requests.get(HEALTH_URL, timeout=60, headers=api_headers())
 
 
 if not st.session_state.api_ready:
     try:
-        requests.get(HEALTH_URL, timeout=3)
+        requests.get(HEALTH_URL, timeout=3, headers=api_headers())
         st.session_state.api_ready = True
     except Exception:
         threading.Thread(target=_warmup_thread, daemon=True).start()
@@ -58,7 +84,7 @@ if not st.session_state.api_ready:
                 # instead of always waiting the full timeout.
                 ready = False
                 with contextlib.suppress(Exception):
-                    requests.get(HEALTH_URL, timeout=2)
+                    requests.get(HEALTH_URL, timeout=2, headers=api_headers())
                     ready = True
                 if ready:
                     progress_bar.progress(1.0)
@@ -174,7 +200,10 @@ def fetch_job_results(file_bytes, file_name, departements=None, types_contrat=No
         data["types_contrat"] = ",".join(types_contrat)
     try:
         response = requests.post(
-            API_URL, files={"file": (file_name, file_bytes)}, data=data or None
+            API_URL,
+            files={"file": (file_name, file_bytes)},
+            data=data or None,
+            headers=api_headers(),
         )
         if response.status_code == 200:
             return response.json().get("top_jobs", [])

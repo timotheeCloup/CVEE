@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in the values.
+# The sb_* values are the same as infra/terraform.tfvars (Supabase prod).
+
+project_id   = "cvee-20260208"
+invoker_user = "timothee.cloupmartin@gmail.com"
+
+sb_user     = "postgres.xxxxxxxxxxxx"
+sb_password = "your-supabase-password"

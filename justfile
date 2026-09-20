@@ -20,6 +20,16 @@ deploy-ui:
     docker push {{AR}}/cvee-ui:latest
     gcloud run deploy cvee-ui --image {{AR}}/cvee-ui:latest --region {{CR_REGION}} --project {{PROJECT}} --allow-unauthenticated
 
+# ── Dev environment (private Cloud Run: cvee-api-dev / cvee-ui-dev) ──
+
+# Bootstrap or update the dev services (Terraform, separate state)
+tf-dev:
+    cd infra/dev && terraform init && terraform apply
+
+# Open the private dev UI in a browser via the Cloud Run proxy
+dev-ui:
+    gcloud run services proxy cvee-ui-dev --project {{PROJECT}} --region {{CR_REGION}} --port 8080
+
 # ── Cloud Functions (quick dev redeploy) ──
 
 # Copy shared module into each CF dir (required before deploy)
