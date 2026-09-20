@@ -21,13 +21,14 @@ TOP_K: int = 100
 # on the terms it actually shares with the CV. Discriminative skills ("python")
 # therefore dominate generic words ("equipe", "realisation") that match almost
 # every offer.
-EMBED_WEIGHT: float = 0.3
-FTS_WEIGHT: float = 0.4
-TITLE_WEIGHT: float = 0.3
+EMBED_WEIGHT: float = 0.4
+FTS_WEIGHT: float = 0.5
+TITLE_WEIGHT: float = 0.1
 # Title saturation reference. One matched title term contributes ~0.11 of
-# "matched weight", so TITLE_REF=1.0 keeps a single term a partial boost and
-# requires several matching terms to saturate the title component.
-TITLE_REF: float = 1.0
+# "matched weight", so TITLE_REF=2.0 keeps a single term a small boost and
+# requires several matching terms to saturate the title component. Kept low on
+# purpose: a lone title match is often a place/entity name, not a skill.
+TITLE_REF: float = 2.0
 FTS_REF: float = 15.0
 # Number of rarest CV terms kept for the keyword query and IDF weighting.
 FTS_MAX_TERMS: int = 50
