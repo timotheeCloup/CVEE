@@ -33,6 +33,9 @@ main:
           call: http.post
           args:
             url: ${pipeline_url}
+            # The pipeline CF allows 3600s; keep the workflow request alive
+            # for the same budget instead of the 300s HTTP default.
+            timeout: 3600
           result: pipeline_result
         retry:
           predicate: $${http.default_retry_predicate}
@@ -51,6 +54,9 @@ main:
           call: http.post
           args:
             url: ${ingest_db_url}
+            # The ingest CF allows 3600s; the 300s HTTP default used to abort
+            # this step while the function was still inserting rows.
+            timeout: 3600
           result: ingest_result
         retry:
           predicate: $${http.default_retry_predicate}

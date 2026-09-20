@@ -87,6 +87,11 @@ ingestion:
 ingest:
     curl -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/ingest-db-cf"
 
+# Local ingest sandbox on a few chosen jobs (needs `docker compose up -d postgres`)
+# e.g. `just ingest-sandbox "--limit 5"` or `just ingest-sandbox "--job-ids 214CVBS,214CTYX"`
+ingest-sandbox args="--limit 5":
+    uv run python scripts/ingest_sandbox.py {{args}}
+
 # Trigger the full ETL Cloud Workflow (api-to-gcs → pipeline → ingest-db)
 workflow:
     gcloud workflows executions run cvee-etl-pipeline --location={{REGION}} --project={{PROJECT}}
