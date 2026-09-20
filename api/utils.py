@@ -12,15 +12,18 @@ logger: Any = structlog.get_logger()
 
 TOP_K: int = 100
 
-# Reciprocal Rank Fusion constants
-RRF_K: int = 60
-
-# Title weight in RRF: title score counts TITLE_WEIGHT times more than embedding/FTS
-TITLE_WEIGHT: float = 4.0
-
-# Theoretical max RRF score: job ranked #1 in all 3 dimensions
-# score = sum(weight / (RRF_K + rank)) for embed(1), fts(1), title(TITLE_WEIGHT)
-RRF_SCORE_MAX: float = (1 + 1 + TITLE_WEIGHT) / (RRF_K + 1)
+# Absolute match score: corpus-independent (no rank-based normalization).
+# ts_rank is diluted by the number of query terms (rank = matched_weight / N),
+# so each keyword component is multiplied back by N to recover an absolute
+# "matched weight" that does not depend on the CV length.
+# score = EMBED_WEIGHT * cosine
+#       + FTS_WEIGHT   * min(fts_matched   / FTS_REF, 1)
+#       + TITLE_WEIGHT * min(title_matched / TITLE_REF, 1)
+EMBED_WEIGHT: float = 0.3
+FTS_WEIGHT: float = 0.4
+TITLE_WEIGHT: float = 0.3
+FTS_REF: float = 15.0
+TITLE_REF: float = 0.25
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
@@ -69,15 +72,6 @@ def extract_french_keywords_from_headline(headline: Any) -> list[str]:
     return keywords[:10]
 
 
-def linear_mapping(
-    value: float, from_min: float, from_max: float, to_min: float, to_max: float
-) -> float:
-    """Linearly map a value from one range to another"""
-    if from_max - from_min == 0:
-        return to_min
-    return to_min + (to_max - to_min) * (value - from_min) / (from_max - from_min)
-
-
 def _build_fts_weights_literal() -> str:
     """Build PostgreSQL tsvector weights literal string like '{0, 0.3, 0.6, 1.0}'"""
     weights = [0] + FTS_WEIGHTS  # [D, C, B, A], D=0 unused
@@ -94,15 +88,24 @@ async def search_jobs_vector_hybrid(
     """
     Hybrid job search combining FTS + embedding + title via Reciprocal Rank Fusion.
 
-    Ranks jobs independently by embedding similarity, FTS relevance, and title match,
-    then fuses ranks using RRF: score(d) = 1/(k+rank_embed) + 1/(k+rank_fts) + w*1/(k+rank_title).
+    Ranks jobs by an absolute match score combining embedding cosine similarity,
+    full-text relevance and job-title relevance:
 
-    Optional filters restrict the corpus before ranking:
+        score = EMBED_WEIGHT * cosine
+              + FTS_WEIGHT   * min(fts_matched   / FTS_REF, 1)
+              + TITLE_WEIGHT * min(title_matched / TITLE_REF, 1)
+
+    where ``*_matched = ts_rank(...) * number_of_query_terms``. ts_rank is diluted
+    by the query length (rank = matched_weight / N), so multiplying back yields an
+    absolute matched weight. Every term is therefore corpus- and CV-length
+    independent: the score is not inflated when the filtered corpus is small.
+
+    Optional filters restrict the corpus before scoring:
       - departements: department codes (e.g. ["69", "75"]), matched against the
         prefix of lieuTravail->>'libelle' ("69 - Lyon" -> "69").
       - types_contrat: contract codes (e.g. ["CDI", "CDD"]), matched against typeContrat.
 
-    Returns top 100 jobs sorted by RRF combined score.
+    Returns top 100 jobs sorted by match score.
     """
     t_start = time.time()
 
@@ -126,42 +129,44 @@ async def search_jobs_vector_hybrid(
         departements_filter = departements or None
         types_contrat_filter = types_contrat or None
 
-        # Two-stage query: (1) rank all jobs by RRF and keep the top-K, then
-        # (2) compute the expensive ts_headline snippet ONLY on those K rows.
-        # ts_headline does not influence ranking (it only feeds keyword
-        # highlighting), so restricting it to the final top-K is result-preserving
-        # while avoiding highlighting the full corpus on every request.
+        # Two-stage query: (1) score all jobs with the absolute match score and
+        # keep the top-K, then (2) compute the expensive ts_headline snippet ONLY
+        # on those K rows. ts_headline does not influence scoring (it only feeds
+        # keyword highlighting), so restricting it to the final top-K is
+        # result-preserving while avoiding highlighting the full corpus.
         sql = """
-        WITH ranked AS (
+        WITH scored AS (
             SELECT
                 jg.job_id,
-                (1 - (jg.embedding <-> %s))::float8 as embedding_score,
+                (1 - (jg.embedding <=> %s))::float8 as cosine_score,
                 COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0)::float8 as fts_score,
+                COALESCE(ts_rank(js.title_tsv, to_tsquery('french', %s)), 0)::float8 as title_score,
                 js.intitule,
                 js.entreprise->>'nom' AS entreprise,
                 js.lieuTravail->>'libelle' AS lieu,
                 js.typeContratLibelle,
-                js.dateCreation,
-                ROW_NUMBER() OVER (ORDER BY (1 - (jg.embedding <-> %s)) DESC) as embed_rank,
-                ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(%s::float4[], jg.fts_tokens, to_tsquery('french', %s)), 0) DESC) as fts_rank,
-                ROW_NUMBER() OVER (ORDER BY COALESCE(ts_rank(js.title_tsv, to_tsquery('french', %s), 2), 0) DESC) as title_rank
+                js.dateCreation
             FROM jobs_gold jg
             JOIN jobs_silver js ON jg.job_id = js.job_id
             WHERE jg.fts_tokens IS NOT NULL
               AND (%s::text[] IS NULL OR split_part(js.lieuTravail->>'libelle', ' - ', 1) = ANY(%s::text[]))
               AND (%s::text[] IS NULL OR js.typeContrat = ANY(%s::text[]))
         ),
-        top_ranked AS (
+        top_scored AS (
             SELECT
-                job_id, embedding_score, fts_score,
-                (1.0 / (%s + embed_rank) + 1.0 / (%s + fts_rank) + %s * 1.0 / (%s + title_rank))::float8 as combined_score,
+                job_id, cosine_score, fts_score, title_score,
+                LEAST(1.0, GREATEST(0.0,
+                    %s * cosine_score
+                  + %s * LEAST(1.0, (fts_score * %s) / %s)
+                  + %s * LEAST(1.0, (title_score * %s) / %s)
+                ))::float8 as match_score,
                 intitule, entreprise, lieu, typeContratLibelle, dateCreation
-            FROM ranked
-            ORDER BY combined_score DESC
+            FROM scored
+            ORDER BY match_score DESC
             LIMIT %s
         )
         SELECT
-            t.job_id, t.embedding_score, t.fts_score, t.combined_score,
+            t.job_id, t.cosine_score, t.fts_score, t.title_score, t.match_score,
             t.intitule, t.entreprise, t.lieu, t.typeContratLibelle, t.dateCreation,
             ts_headline('french',
                 js.intitule || ' ' || COALESCE(js.description, '') || ' ' ||
@@ -171,16 +176,16 @@ async def search_jobs_vector_hybrid(
                           FROM jsonb_array_elements(js.qualitesprofessionnelles) AS elem), ''),
                 to_tsquery('french', %s),
                 'StartSel=<b>, StopSel=</b>, MaxWords=100, MinWords=50') as headline
-        FROM top_ranked t
+        FROM top_scored t
         JOIN jobs_silver js ON js.job_id = t.job_id
-        ORDER BY t.combined_score DESC;
+        ORDER BY t.match_score DESC;
         """
 
         async with conn.cursor() as cur:
             try:
-                # Keep the 3 ranking sorts (embedding, FTS, title over the full
-                # corpus) in memory instead of spilling to disk. Scoped to this
-                # transaction via SET LOCAL, so it never leaks to pooled sessions.
+                # Keep the scoring sort over the full corpus in memory instead of
+                # spilling to disk. Scoped to this transaction via SET LOCAL, so
+                # it never leaks to pooled sessions.
                 await cur.execute("SET LOCAL work_mem = '64MB'")
                 await cur.execute(
                     sql,
@@ -188,18 +193,18 @@ async def search_jobs_vector_hybrid(
                         embedding_str,
                         fts_weights_literal,
                         tsquery,
-                        embedding_str,
-                        fts_weights_literal,
-                        tsquery,
                         tsquery,
                         departements_filter,
                         departements_filter,
                         types_contrat_filter,
                         types_contrat_filter,
-                        RRF_K,
-                        RRF_K,
+                        EMBED_WEIGHT,
+                        FTS_WEIGHT,
+                        len(fts_terms),
+                        FTS_REF,
                         TITLE_WEIGHT,
-                        RRF_K,
+                        len(fts_terms),
+                        TITLE_REF,
                         TOP_K,
                         tsquery,
                     ),
@@ -219,14 +224,15 @@ async def search_jobs_vector_hybrid(
     t_query = time.time()
     logger.info("query_execution", duration=round(t_query - t_conn, 3), results=len(results))
 
-    # Process results (already sorted by combined_score)
+    # Process results (already sorted by match_score)
     hybrid_results = []
     for r in results:
         (
             job_id,
-            embedding_score,
+            cosine_score,
             fts_score,
-            combined_score,
+            title_score,
+            match_score,
             intitule,
             entreprise,
             lieu,
@@ -238,9 +244,10 @@ async def search_jobs_vector_hybrid(
         hybrid_results.append(
             {
                 "job_id": job_id,
-                "embedding_score": embedding_score,
+                "embedding_score": cosine_score,
                 "fts_score": fts_score,
-                "combined_score": combined_score,
+                "title_score": title_score,
+                "combined_score": match_score,
                 "intitule": intitule,
                 "entreprise": entreprise,
                 "lieu": lieu,
@@ -257,7 +264,8 @@ async def search_jobs_vector_hybrid(
     fts_non_zero = sum(1 for r in hybrid_results if r["fts_score"] > 0)
     logger.info(
         "search_stats",
-        rrf_k=RRF_K,
+        embed_weight=EMBED_WEIGHT,
+        fts_weight=FTS_WEIGHT,
         title_weight=TITLE_WEIGHT,
         fts_non_zero=fts_non_zero,
         total=len(hybrid_results),
@@ -265,33 +273,24 @@ async def search_jobs_vector_hybrid(
 
     if hybrid_results:
         top = hybrid_results[0]
+        n_terms = len(fts_terms)
         logger.info(
             "top_result",
-            embedding_score=round(top["embedding_score"], 4),
-            fts_score=round(top["fts_score"], 4),
-            combined=round(top["combined_score"], 6),
-            intitule=top["intitule"][:40],
+            cosine=round(top["embedding_score"], 4),
+            fts_matched=round(top["fts_score"] * n_terms, 3),
+            title_matched=round(top["title_score"] * n_terms, 4),
+            match=round(top["combined_score"], 4),
         )
-
-    # Format results for API response
-    # Map RRF combined_score to [0, 1] using theoretical max.
-    # This preserves natural score spread: top result won't always be 100%.
-    logger.info(
-        "score_distribution",
-        score_max_theoretical=round(RRF_SCORE_MAX, 6),
-        first_score=round(hybrid_results[0]["combined_score"], 6) if hybrid_results else 0,
-    )
 
     processed_results = []
     for job in hybrid_results:
-        mapped = linear_mapping(job["combined_score"], 0, RRF_SCORE_MAX, 0, 1)
-        clamped = round(max(0.0, min(1.0, mapped)), 2)
         processed_results.append(
             {
                 "job_id": job["job_id"],
-                "similarity_score": clamped,
+                "similarity_score": round(max(0.0, min(1.0, job["combined_score"])), 2),
                 "embedding_score": round(job["embedding_score"], 4),
                 "fts_score": round(job["fts_score"], 4),
+                "title_score": round(job["title_score"], 4),
                 "combined_score": round(job["combined_score"], 4),
                 "intitule": job["intitule"] or "",
                 "entreprise": job["entreprise"] or "",

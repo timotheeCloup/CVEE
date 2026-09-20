@@ -6,6 +6,7 @@ class JobResult(BaseModel):
     similarity_score: float = Field(ge=0.0, le=1.0)
     embedding_score: float
     fts_score: float
+    title_score: float = 0.0
     combined_score: float
     intitule: str = ""
     entreprise: str = ""
