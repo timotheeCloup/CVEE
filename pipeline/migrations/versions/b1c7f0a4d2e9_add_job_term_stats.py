@@ -21,6 +21,58 @@ def upgrade() -> None:
     # the job fts_tokens (see fn_fill_fts_from_silver).
     op.execute("CREATE EXTENSION IF NOT EXISTS unaccent;")
 
+    # jobs_gold.fts_tokens and its fill trigger predate this revision in prod
+    # but were never captured in any migration. Declared here (idempotently) so
+    # a database built from migrations alone matches prod before
+    # refresh_job_term_stats() reads the column below.
+    op.execute(
+        """
+        ALTER TABLE jobs_gold
+        ADD COLUMN IF NOT EXISTS fts_tokens tsvector;
+        """
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION fn_fill_fts_from_silver() RETURNS trigger AS $$
+        DECLARE
+            source_record RECORD;
+            clean_competences TEXT;
+            clean_qualites TEXT;
+        BEGIN
+            SELECT intitule, description, competences, qualitesprofessionnelles
+            INTO source_record
+            FROM jobs_silver
+            WHERE job_id = NEW.job_id;
+
+            SELECT string_agg(elem->>'libelle', ' ')
+            INTO clean_competences
+            FROM jsonb_array_elements(source_record.competences) AS elem;
+
+            SELECT string_agg((elem->>'libelle') || ' ' || (elem->>'description'), ' ')
+            INTO clean_qualites
+            FROM jsonb_array_elements(source_record.qualitesprofessionnelles) AS elem;
+
+            UPDATE jobs_gold
+            SET fts_tokens =
+                setweight(to_tsvector('french', unaccent(COALESCE(source_record.intitule, ''))), 'A') ||
+                setweight(to_tsvector('french', unaccent(COALESCE(source_record.description, ''))), 'B') ||
+                setweight(to_tsvector('french', unaccent(COALESCE(clean_competences, ''))), 'C') ||
+                setweight(to_tsvector('french', unaccent(COALESCE(clean_qualites, ''))), 'C')
+            WHERE job_id = NEW.job_id;
+
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+    op.execute("DROP TRIGGER IF EXISTS tr_update_gold_fts ON jobs_gold;")
+    op.execute(
+        """
+        CREATE TRIGGER tr_update_gold_fts AFTER INSERT ON jobs_gold
+        FOR EACH ROW EXECUTE FUNCTION fn_fill_fts_from_silver();
+        """
+    )
+
     # Document frequency per lexeme over the job corpus. Used to weight CV
     # terms by rarity (IDF): rare skills like "python" outrank generic words
     # like "equipe" that appear in almost every offer.
@@ -57,3 +109,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS refresh_job_term_stats();")
     op.execute("DROP TABLE IF EXISTS job_term_stats;")
+    op.execute("DROP TRIGGER IF EXISTS tr_update_gold_fts ON jobs_gold;")
+    op.execute("DROP FUNCTION IF EXISTS fn_fill_fts_from_silver();")
+    op.execute("ALTER TABLE jobs_gold DROP COLUMN IF EXISTS fts_tokens;")
