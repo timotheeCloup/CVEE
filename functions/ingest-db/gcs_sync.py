@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import psycopg2
 import structlog
+from psycopg2.extras import execute_values
 
 DAYS_BEFORE_PURGE = 30
 
@@ -99,8 +100,9 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                         lambda x: json.loads(x) if isinstance(x, str) and pd.notnull(x) else x
                     )
 
+            cols = df_silver.columns.tolist()
+            rows = []
             for _, row in df_silver.iterrows():
-                cols = row.index.tolist()
                 values = []
                 for c in cols:
                     val = row[c]
@@ -113,13 +115,16 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                         values.append(json.dumps(val))
                     else:
                         values.append(val)
+                rows.append(tuple(values))
 
-                placeholders = ", ".join(["%s"] * len(cols))
-                sql = f"INSERT INTO jobs_silver ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (job_id) DO NOTHING;"  # nosec B608 -- parameterized via %s
-                cur.execute(sql, values)
+            if rows:
+                # One round trip per page instead of one per row: the row-by-row
+                # loop was the reason the ingest exceeded the workflow timeout.
+                sql = f"INSERT INTO jobs_silver ({', '.join(cols)}) VALUES %s ON CONFLICT (job_id) DO NOTHING;"  # nosec B608 -- parameterized via execute_values
+                execute_values(cur, sql, rows, page_size=200)
 
             conn.commit()
-            logger.info("silver_inserted", path=gcs_path)
+            logger.info("silver_inserted", path=gcs_path, count=len(rows))
 
     # --- Processing Gold Table ---
     if not gold_keys:
@@ -150,6 +155,7 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                 )
             )
 
+            rows = []
             for _, row in df_gold.iterrows():
                 job_id = row["job_id"]
                 embedding = row["embedding"]
@@ -157,11 +163,16 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
                 if embedding is not None and any(pd.isna(i) for i in embedding):
                     embedding = [None if pd.isna(i) else i for i in embedding]
 
-                sql = "INSERT INTO jobs_gold (job_id, embedding) VALUES (%s, %s) ON CONFLICT (job_id) DO NOTHING;"
-                cur.execute(sql, (job_id, embedding))
+                rows.append((job_id, embedding))
+
+            if rows:
+                # Batch the 384-dim vectors: one round trip per page, and the
+                # per-row FTS trigger still runs server-side for each row.
+                sql = "INSERT INTO jobs_gold (job_id, embedding) VALUES %s ON CONFLICT (job_id) DO NOTHING;"
+                execute_values(cur, sql, rows, page_size=200)
 
             conn.commit()
-            logger.info("gold_inserted", path=gcs_path)
+            logger.info("gold_inserted", path=gcs_path, count=len(rows))
 
     delete_old_records(cur, days=30)
 
