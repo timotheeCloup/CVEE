@@ -1,4 +1,5 @@
 import contextlib
+import json
 import os
 import threading
 import time
@@ -12,6 +13,18 @@ st.set_page_config(page_title="CV Match Engine", layout="centered")
 API_URL = os.getenv("API_URL", "http://localhost:8000/embed-cv")
 HEALTH_URL = API_URL.rsplit("/embed-cv", 1)[0] + "/health"
 COLD_START_TIMEOUT = 10
+DEPARTEMENTS_FILE = os.path.join(os.path.dirname(__file__), "departements.json")
+
+
+@st.cache_data
+def load_departements() -> dict[str, str]:
+    """Load the static French department code -> name mapping."""
+    with open(DEPARTEMENTS_FILE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+DEPARTEMENTS = load_departements()
+CONTRAT_TYPES = ["CDI", "CDD"]
 
 if "api_ready" not in st.session_state:
     st.session_state.api_ready = False
@@ -148,14 +161,21 @@ st.markdown(
 if "last_upload_id" not in st.session_state:
     st.session_state.last_upload_id = None
 
-if "cached_job_results" not in st.session_state:
-    st.session_state.cached_job_results = None
+if "results_cache" not in st.session_state:
+    st.session_state.results_cache = {}
 
 
-def fetch_job_results(file_bytes, file_name):
-    """Get job results from the API given the CV file bytes."""
+def fetch_job_results(file_bytes, file_name, departements=None, types_contrat=None):
+    """Get job results from the API given the CV file bytes and optional filters."""
+    data = {}
+    if departements:
+        data["departements"] = ",".join(departements)
+    if types_contrat:
+        data["types_contrat"] = ",".join(types_contrat)
     try:
-        response = requests.post(API_URL, files={"file": (file_name, file_bytes)})
+        response = requests.post(
+            API_URL, files={"file": (file_name, file_bytes)}, data=data or None
+        )
         if response.status_code == 200:
             return response.json().get("top_jobs", [])
     except Exception:
@@ -177,18 +197,41 @@ if uploaded_file is not None:
 
     if current_upload_id != st.session_state.last_upload_id:
         st.session_state.last_upload_id = current_upload_id
-        st.session_state.cached_job_results = None
+        st.session_state.results_cache = {}
         for key in list(st.session_state.keys()):
             if key.startswith("analysis_"):
                 del st.session_state[key]
 
-    if st.session_state.cached_job_results is None:
+    with st.form("filters_form"):
+        selected_departements = st.multiselect(
+            "Département",
+            options=list(DEPARTEMENTS),
+            format_func=lambda code: f"{code} - {DEPARTEMENTS[code]}",
+            placeholder="Tous les départements",
+        )
+        selected_types = st.multiselect(
+            "Type de contrat",
+            options=CONTRAT_TYPES,
+            placeholder="Tous les contrats",
+        )
+        st.form_submit_button("Appliquer les filtres")
+
+    cache_key = (
+        current_upload_id,
+        tuple(sorted(selected_departements)),
+        tuple(sorted(selected_types)),
+    )
+    cache = st.session_state.results_cache
+    if cache_key not in cache:
         file_bytes = uploaded_file.getvalue()
         with st.spinner("Analyse du profil en cours..."):
-            top_jobs = fetch_job_results(file_bytes, uploaded_file.name)
-        st.session_state.cached_job_results = top_jobs
-    else:
-        top_jobs = st.session_state.cached_job_results
+            cache[cache_key] = fetch_job_results(
+                file_bytes,
+                uploaded_file.name,
+                selected_departements,
+                selected_types,
+            )
+    top_jobs = cache[cache_key]
 
     if top_jobs:
         st.success(f"🔥 {len(top_jobs)} jobs trouvés !")
@@ -249,8 +292,10 @@ if uploaded_file is not None:
                 c1.markdown(f"📍 {job.get('lieu', 'N/A')}")
                 c2.markdown(f"📄 {job.get('type_contrat', 'N/A')}")
                 c3.markdown(f"📅 {clean_date}")
-    else:
+    elif top_jobs is None:
         st.error("Le service API n'est pas disponible. Veuillez réessayer.")
+    else:
+        st.info("Aucune offre ne correspond à ces filtres.")
 
 st.markdown(
     """

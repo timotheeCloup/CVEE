@@ -5,7 +5,7 @@ import traceback
 import structlog
 from config import settings
 from embed_cv_search import embed_cv_and_search_async
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from models import EmbedResponse, HealthResponse
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -45,13 +45,25 @@ async def health() -> HealthResponse:
 
 @app.post("/embed-cv", response_model=EmbedResponse)
 @limiter.limit("5/minute")
-async def embed_cv(request: Request, file: UploadFile = File(...)) -> EmbedResponse:
+async def embed_cv(
+    request: Request,
+    file: UploadFile = File(...),
+    departements: str = Form(""),
+    types_contrat: str = Form(""),
+) -> EmbedResponse:
     """Extract text from uploaded PDF, generate embedding, and return matching jobs.
+
+    Optional filters (comma-separated) restrict the search corpus before ranking:
+    `departements` holds department codes (e.g. "69,75") and `types_contrat` holds
+    contract codes (e.g. "CDI,CDD"). Empty values mean no filter.
 
     Rate-limited to 5 requests/minute (costly compute: embedding model + DB search).
     """
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be PDF")
+
+    departements_list = [d.strip() for d in departements.split(",") if d.strip()]
+    types_contrat_list = [t.strip() for t in types_contrat.split(",") if t.strip()]
 
     t_start = time.time()
 
@@ -78,7 +90,12 @@ async def embed_cv(request: Request, file: UploadFile = File(...)) -> EmbedRespo
         return EmbedResponse(top_jobs=[])
 
     try:
-        top_jobs = await embed_cv_and_search_async(text, t_api_start=t_start)
+        top_jobs = await embed_cv_and_search_async(
+            text,
+            t_api_start=t_start,
+            departements=departements_list,
+            types_contrat=types_contrat_list,
+        )
     except Exception as e:
         logger.error(
             "embed_search_error",
