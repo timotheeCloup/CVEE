@@ -135,6 +135,22 @@ async def search_jobs_vector_hybrid(
             -- such as "H/F" or "bac+5"): they are noise, not skills.
             SELECT term FROM cv_terms WHERE length(term) >= 2 AND term ~ '[a-z]'
         ),
+        cv_token_map AS (
+            -- Stem -> original CV word. Frequencies and IDF are computed on the
+            -- stem (french dictionary), but the display keeps the exact word so
+            -- the UI shows "databricks" instead of the truncated "databrick".
+            SELECT
+                lower(t) AS token,
+                (tsvector_to_array(to_tsvector('french', unaccent(lower(t)))))[1] AS stem
+            FROM regexp_split_to_table(%(cv_text)s, '[^[:alnum:]-]+') AS t
+            WHERE length(t) >= 2
+        ),
+        cv_display AS (
+            SELECT stem, min(token) AS display
+            FROM cv_token_map
+            WHERE stem IS NOT NULL
+            GROUP BY stem
+        ),
         scored_cv AS (
             SELECT c.term, s.df, ln(corpus.n_docs / GREATEST(s.df, 1))::float8 AS idf
             FROM cv_terms_clean c
@@ -187,9 +203,10 @@ async def search_jobs_vector_hybrid(
             JOIN jobs_gold jg ON jg.job_id = tc.job_id
             LEFT JOIN LATERAL (
                 SELECT sum(r.idf) AS idf_sum,
-                       array_agg(r.term ORDER BY r.df ASC) AS matched_terms
+                       array_agg(COALESCE(d.display, r.term) ORDER BY r.df ASC) AS matched_terms
                 FROM unnest(tsvector_to_array(jg.fts_tokens)) AS t(lex)
                 JOIN ranked r ON r.term = t.lex
+                LEFT JOIN cv_display d ON d.stem = r.term
             ) m ON true
         )
         SELECT
