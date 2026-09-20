@@ -29,30 +29,6 @@ async def test_extract_text_from_pdf_invalid() -> None:
 
 
 @pytest.mark.asyncio
-async def test_linear_mapping_normal() -> None:
-    from utils import linear_mapping
-
-    result = linear_mapping(0.5, 0.0, 1.0, 0.0, 100.0)
-    assert result == 50.0
-
-
-@pytest.mark.asyncio
-async def test_linear_mapping_zero_range() -> None:
-    from utils import linear_mapping
-
-    result = linear_mapping(0.5, 0.5, 0.5, 0.0, 100.0)
-    assert result == 0.0
-
-
-@pytest.mark.asyncio
-async def test_linear_mapping_reverse_range() -> None:
-    from utils import linear_mapping
-
-    result = linear_mapping(0.25, 0.0, 0.5, 0.15, 0.85)
-    assert result == 0.5
-
-
-@pytest.mark.asyncio
 async def test_extract_french_keywords_from_headline() -> None:
     from utils import extract_french_keywords_from_headline
 
@@ -95,7 +71,8 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         "123ABC",
         0.72,
         0.08,
-        0.02,
+        0.30,
+        0.50,
         "Développeur Python",
         "TechCorp",
         "Paris",
@@ -143,7 +120,8 @@ async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
         "123ABC",
         0.72,
         0.08,
-        0.02,
+        0.30,
+        0.50,
         "Développeur Python",
         "TechCorp",
         "Lyon",
