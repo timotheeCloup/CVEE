@@ -180,7 +180,10 @@ async def filter_dead_jobs(
 
 
 async def embed_cv_and_search(
-    cv_text: str, t_api_start: float | None = None
+    cv_text: str,
+    t_api_start: float | None = None,
+    departements: list[str] | None = None,
+    types_contrat: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Search jobs using hybrid FTS + embedding approach.
@@ -220,7 +223,11 @@ async def embed_cv_and_search(
 
     # Hybrid search
     top_jobs: list[dict[str, Any]] = await search_jobs_vector_hybrid(
-        embedding=embedding, cv_text_fts=cv_text_for_fts, cv_text_orig=cv_text
+        embedding=embedding,
+        cv_text_fts=cv_text_for_fts,
+        cv_text_orig=cv_text,
+        departements=departements,
+        types_contrat=types_contrat,
     )
     t3 = time.time()
     logger.info("hybrid_search", duration=round(t3 - t2, 2), results=len(top_jobs))
@@ -230,17 +237,27 @@ async def embed_cv_and_search(
 
 
 async def embed_cv_and_search_async(
-    cv_text: str, t_api_start: float | None = None
+    cv_text: str,
+    t_api_start: float | None = None,
+    departements: list[str] | None = None,
+    types_contrat: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Search jobs via hybrid FTS+embedding, then filter dead links.
 
     Args:
         cv_text: Full text extracted from the CV PDF.
         t_api_start: Optional start timestamp for total duration logging.
+        departements: Optional department codes to restrict the search.
+        types_contrat: Optional contract codes to restrict the search.
 
     Returns:
         List of verified (alive) matching job results.
     """
-    top_jobs = await embed_cv_and_search(cv_text, t_api_start)
+    top_jobs = await embed_cv_and_search(
+        cv_text,
+        t_api_start,
+        departements=departements,
+        types_contrat=types_contrat,
+    )
     verified_jobs = await filter_dead_jobs(top_jobs)
     return verified_jobs

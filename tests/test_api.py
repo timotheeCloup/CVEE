@@ -37,6 +37,24 @@ async def test_embed_cv_pdf_success(
 
 
 @pytest.mark.asyncio
+async def test_embed_cv_forwards_filters(
+    client: TestClient, mock_search_results: list[dict], sample_pdf_bytes: bytes
+) -> None:
+    with patch("app.embed_cv_and_search_async", new_callable=AsyncMock) as mock_search:
+        mock_search.return_value = mock_search_results
+
+        response = client.post(
+            "/embed-cv",
+            files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
+            data={"departements": "69,75", "types_contrat": "CDI"},
+        )
+        assert response.status_code == 200
+        kwargs = mock_search.await_args.kwargs
+        assert kwargs["departements"] == ["69", "75"]
+        assert kwargs["types_contrat"] == ["CDI"]
+
+
+@pytest.mark.asyncio
 async def test_embed_cv_rejects_non_pdf(client: TestClient) -> None:
     response = client.post(
         "/embed-cv",

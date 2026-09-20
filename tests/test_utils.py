@@ -131,3 +131,51 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         assert results[0]["job_id"] == "123ABC"
         assert "similarity_score" in results[0]
         assert "matching_terms" in results[0]
+
+        # No filters -> both filter params are NULL (no corpus restriction).
+        sql_params = mock_cursor.execute.call_args_list[1].args[1]
+        assert None in sql_params
+
+
+@pytest.mark.asyncio
+async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
+    mock_row = (
+        "123ABC",
+        0.72,
+        0.08,
+        0.02,
+        "Développeur Python",
+        "TechCorp",
+        "Lyon",
+        "CDI",
+        "2025-06-01T00:00:00Z",
+        "Développeur <b>Python</b>",
+    )
+
+    mock_pool = AsyncMock()
+    mock_conn = AsyncMock()
+    mock_cursor = AsyncMock()
+    mock_cursor.__aenter__ = AsyncMock(return_value=mock_cursor)
+    mock_cursor.__aexit__ = AsyncMock(return_value=None)
+    mock_cursor.execute = AsyncMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
+    mock_conn.cursor = MagicMock(return_value=mock_cursor)
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.connection = MagicMock(return_value=mock_conn)
+
+    with patch("utils._get_pool", AsyncMock(return_value=mock_pool)):
+        from utils import search_jobs_vector_hybrid
+
+        results = await search_jobs_vector_hybrid(
+            embedding=[0.1] * 384,
+            cv_text_fts="développeur python",
+            cv_text_orig="Développeur Python expérimenté",
+            departements=["69"],
+            types_contrat=["CDI"],
+        )
+        assert len(results) == 1
+
+        sql_params = mock_cursor.execute.call_args_list[1].args[1]
+        assert ["69"] in sql_params
+        assert ["CDI"] in sql_params

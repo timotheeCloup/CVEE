@@ -85,13 +85,22 @@ def _build_fts_weights_literal() -> str:
 
 
 async def search_jobs_vector_hybrid(
-    embedding: list[float], cv_text_fts: str, cv_text_orig: str
+    embedding: list[float],
+    cv_text_fts: str,
+    cv_text_orig: str,
+    departements: list[str] | None = None,
+    types_contrat: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Hybrid job search combining FTS + embedding + title via Reciprocal Rank Fusion.
 
     Ranks jobs independently by embedding similarity, FTS relevance, and title match,
     then fuses ranks using RRF: score(d) = 1/(k+rank_embed) + 1/(k+rank_fts) + w*1/(k+rank_title).
+
+    Optional filters restrict the corpus before ranking:
+      - departements: department codes (e.g. ["69", "75"]), matched against the
+        prefix of lieuTravail->>'libelle' ("69 - Lyon" -> "69").
+      - types_contrat: contract codes (e.g. ["CDI", "CDD"]), matched against typeContrat.
 
     Returns top 100 jobs sorted by RRF combined score.
     """
@@ -114,6 +123,8 @@ async def search_jobs_vector_hybrid(
             tsquery = "'placeholder'"
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
         fts_weights_literal = _build_fts_weights_literal()
+        departements_filter = departements or None
+        types_contrat_filter = types_contrat or None
 
         # Two-stage query: (1) rank all jobs by RRF and keep the top-K, then
         # (2) compute the expensive ts_headline snippet ONLY on those K rows.
@@ -137,6 +148,8 @@ async def search_jobs_vector_hybrid(
             FROM jobs_gold jg
             JOIN jobs_silver js ON jg.job_id = js.job_id
             WHERE jg.fts_tokens IS NOT NULL
+              AND (%s::text[] IS NULL OR split_part(js.lieuTravail->>'libelle', ' - ', 1) = ANY(%s::text[]))
+              AND (%s::text[] IS NULL OR js.typeContrat = ANY(%s::text[]))
         ),
         top_ranked AS (
             SELECT
@@ -179,6 +192,10 @@ async def search_jobs_vector_hybrid(
                         fts_weights_literal,
                         tsquery,
                         tsquery,
+                        departements_filter,
+                        departements_filter,
+                        types_contrat_filter,
+                        types_contrat_filter,
                         RRF_K,
                         RRF_K,
                         TITLE_WEIGHT,
