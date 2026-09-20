@@ -164,6 +164,12 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
             logger.info("gold_inserted", path=gcs_path)
 
     delete_old_records(cur, days=30)
+
+    # Rebuild the term document frequencies so the API can weight CV terms by
+    # rarity (IDF). Safe to run on every ingest: the table is small.
+    cur.execute("SELECT refresh_job_term_stats();")
+    logger.info("term_stats_refreshed")
+
     conn.commit()
     conn.close()
     logger.info("ingest_supabase_completed")

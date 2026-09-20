@@ -218,7 +218,7 @@ async def test_embed_cv_and_search_returns_results() -> None:
                 "Paris",
                 "CDI",
                 "2025-06-01",
-                "Développeur <b>Python</b>",
+                ["python"],
             )
         ]
     )
