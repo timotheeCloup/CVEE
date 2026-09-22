@@ -40,7 +40,15 @@ def pipeline_cf(request):
             max_jobs = int(max_jobs)
             logger.info("max_jobs_limit", max_jobs=max_jobs)
 
-        silver_path, gold_path = run_pipeline(bucket_name, days=days, max_jobs=max_jobs)
+        # Backfill calls the pipeline once per day; without force, the
+        # Databricks guard would skip every run after the first of the day.
+        force = request.args.get("force") == "1"
+        if force:
+            logger.info("force_mode")
+
+        silver_path, gold_path = run_pipeline(
+            bucket_name, days=days, max_jobs=max_jobs, force=force
+        )
 
         if silver_path is None:
             logger.info("pipeline_no_output")

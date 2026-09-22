@@ -195,8 +195,10 @@ async def test_list_raw_files_latest_only() -> None:
         "gs://bucket/jobs_raw/job_20250601.parquet",
         "gs://bucket/jobs_raw/job_20250602.parquet",
     ]
+    updated = {files[0]: "2025-06-01T00:00:00Z", files[1]: "2025-06-02T00:00:00Z"}
     mock_fs = MagicMock()
     mock_fs.glob = MagicMock(return_value=files)
+    mock_fs.info = MagicMock(side_effect=lambda p: {"updated": updated[p]})
 
     with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
         from core import _list_raw_files
@@ -204,6 +206,23 @@ async def test_list_raw_files_latest_only() -> None:
         result = _list_raw_files("bucket", days=None)
         assert len(result) == 1
         assert result[0] == files[-1]
+
+
+@pytest.mark.asyncio
+async def test_list_raw_files_latest_uses_updated_not_name() -> None:
+    # A backfill file (jobs_raw_<min>_<max>_<ts>) sorts below a daily file
+    # (jobs_raw_<ts>) because '-' < '0', but it is the most recently written.
+    daily = "gs://bucket/jobs_raw/jobs_raw_20260921_210000.parquet"
+    backfill = "gs://bucket/jobs_raw/jobs_raw_2026-09-18_2026-09-18_120000.parquet"
+    updated = {daily: "2026-09-21T21:00:00Z", backfill: "2026-09-22T22:00:00Z"}
+    mock_fs = MagicMock()
+    mock_fs.glob = MagicMock(return_value=[daily, backfill])
+    mock_fs.info = MagicMock(side_effect=lambda p: {"updated": updated[p]})
+
+    with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
+        from core import _list_raw_files
+
+        assert _list_raw_files("bucket", days=None) == [backfill]
 
 
 @pytest.mark.asyncio

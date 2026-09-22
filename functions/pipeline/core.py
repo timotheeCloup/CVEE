@@ -141,6 +141,17 @@ def _databricks_already_produced(bucket_name):
     return silver_exists and gold_exists
 
 
+def _file_updated(fs, path):
+    """Return a GCS object's ``updated`` timestamp as a naive datetime."""
+    try:
+        updated = fs.info(path).get("updated", datetime.min)
+    except Exception:
+        return datetime.min
+    if isinstance(updated, str):
+        updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+    return updated.replace(tzinfo=None) if updated.tzinfo else updated
+
+
 def _list_raw_files(bucket_name, days=None):
     """Return sorted list of raw parquet file URIs from GCS.
 
@@ -158,7 +169,10 @@ def _list_raw_files(bucket_name, days=None):
         return []
 
     if days is None:
-        return [max(all_files)]
+        # Most recently written file, not the lexicographically largest name:
+        # backfill files (jobs_raw_<min>_<max>_<ts>.parquet) sort below the
+        # daily ones (jobs_raw_<ts>.parquet) because '-' < '0'.
+        return [max(all_files, key=lambda f: _file_updated(fs, f))]
 
     cutoff = datetime.now() - timedelta(days=days)
     recent = []
@@ -172,7 +186,7 @@ def _list_raw_files(bucket_name, days=None):
                 recent.append(f)
         except Exception:
             continue
-    return sorted(recent) if recent else [max(all_files)]
+    return sorted(recent) if recent else [max(all_files, key=lambda f: _file_updated(fs, f))]
 
 
 def _deduplicate(df):
