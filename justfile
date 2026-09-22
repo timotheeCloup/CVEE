@@ -87,9 +87,10 @@ ingestion:
 ingest:
     curl -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/ingest-db-cf"
 
-# Local ingest sandbox on a few chosen jobs (needs `docker compose up -d postgres`)
-# e.g. `just ingest-sandbox "--limit 5"` or `just ingest-sandbox "--job-ids 214CVBS,214CTYX"`
-ingest-sandbox args="--limit 5":
+# Quick local ingestion: seed the dev DB from the latest GCS batch (starts postgres first).
+# Resets the local schema, then ingests N real jobs — never touches Supabase.
+# e.g. `just ingest-sandbox` or `just ingest-sandbox "--job-ids 214CVBS,214CTYX"`
+ingest-sandbox args="--limit 5": dev-db
     uv run python scripts/ingest_sandbox.py {{args}}
 
 # Trigger the full ETL Cloud Workflow (api-to-gcs → pipeline → ingest-db)
@@ -99,6 +100,53 @@ workflow:
 # Backfill historical data
 backfill date_min date_max:
     uv run python scripts/backfill.py --date-min {{date_min}} --date-max {{date_max}}
+
+# ── Local dev stack (pgvector + API + UI) ──
+
+# Start the local pgvector database (only needed by `just ingest-sandbox`)
+dev-db:
+    docker compose up -d postgres
+
+# Run the dev API (:8000) + UI (:8501) against the real Supabase database (read-only)
+dev: (_dev "supabase")
+
+# Run the dev API + UI against the local pgvector DB (seed with `just ingest-sandbox`)
+dev-local: (_dev "local")
+
+[private]
+_dev mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    compose=(docker compose)
+    if [ "{{mode}}" = "local" ]; then
+        compose+=(-f docker-compose.yml -f docker-compose.local.yml)
+        label="local pgvector (seed with: just ingest-sandbox)"
+    else
+        label="Supabase (read-only, real offers)"
+    fi
+    cleanup() { "${compose[@]}" down >/dev/null 2>&1 || true; }
+    trap cleanup INT TERM
+    "${compose[@]}" up -d --build cvee-api cvee-ui
+    printf 'Waiting for services'
+    for _ in {1..60}; do
+        if curl -sf -o /dev/null http://localhost:8000/health \
+            && curl -sf -o /dev/null http://localhost:8501/_stcore/health; then
+            break
+        fi
+        printf '.'
+        sleep 1
+    done
+    printf '\n'
+    printf '  UI   -> http://localhost:8501\n'
+    printf '  API  -> http://localhost:8000/health\n'
+    printf '  Docs -> http://localhost:8000/docs\n'
+    printf '  DB   -> %s\n' "$label"
+    printf '\n  Ctrl-C pour tout arrêter\n\n'
+    "${compose[@]}" logs -f
+
+# Stop the local dev stack (add `-v` to also drop the database volume)
+dev-down:
+    docker compose down
 
 # ── Dev ──
 

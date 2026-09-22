@@ -219,6 +219,10 @@ async def test_embed_cv_and_search_returns_results() -> None:
                 "CDI",
                 "2025-06-01",
                 ["python"],
+                "48.8566",
+                "2.3522",
+                None,
+                None,
             )
         ]
     )

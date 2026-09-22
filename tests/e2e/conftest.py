@@ -24,6 +24,8 @@ class MockAPIHandler(BaseHTTPRequestHandler):
             "type_contrat": "CDI",
             "date_creation": "2025-06-01T00:00:00Z",
             "matching_terms": ["python", "développeur", "senior"],
+            "latitude": 48.8566,
+            "longitude": 2.3522,
         },
         {
             "job_id": "456DEF",
@@ -34,6 +36,8 @@ class MockAPIHandler(BaseHTTPRequestHandler):
             "type_contrat": "CDI",
             "date_creation": "2025-05-15T00:00:00Z",
             "matching_terms": ["data", "python", "engineer"],
+            "latitude": 45.758,
+            "longitude": 4.8351,
         },
     ]
 

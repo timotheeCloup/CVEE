@@ -1,4 +1,7 @@
 import io
+import json
+import os
+import re
 import time
 from typing import Any
 
@@ -63,6 +66,67 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     if reader.pages:
         text = reader.pages[0].extract_text() or ""
     return text.strip()
+
+
+COMMUNES_COORDS_FILE: str = os.path.join(os.path.dirname(__file__), "communes_coords.json")
+
+# Lazy-loaded commune coordinate lookup (INSEE/postal/department -> [lat, lon]).
+# ~1 MB, ~17 ms to parse, so it is only read when an offer actually lacks
+# coordinates and never blocks startup/health checks.
+_communes_coords: dict[str, dict[str, list[float]]] | None = None
+
+
+def _load_communes_coords() -> dict[str, dict[str, list[float]]]:
+    """Load the commune coordinate lookup once, on first use."""
+    global _communes_coords
+    if _communes_coords is not None:
+        return _communes_coords
+    try:
+        with open(COMMUNES_COORDS_FILE, encoding="utf-8") as f:
+            data: dict[str, dict[str, list[float]]] = json.load(f)
+    except Exception as e:
+        logger.warning("communes_coords_load_failed", error=str(e))
+        data = {"insee": {}, "cp": {}, "dept": {}}
+    _communes_coords = data
+    return data
+
+
+def _to_float(value: Any) -> float | None:
+    """Convert a raw latitude/longitude value to float, or None if unusable."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _split_department(libelle: str) -> str | None:
+    """Extract the department code from a location label ("69 - Lyon" -> "69")."""
+    prefix = libelle.split(" - ", 1)[0].strip()
+    return prefix if re.fullmatch(r"\d{2,3}|2[AB]", prefix) else None
+
+
+def resolve_coordinates(
+    insee: str | None, code_postal: str | None, libelle: str | None
+) -> tuple[float | None, float | None]:
+    """Resolve map coordinates for an offer whose location carries no lat/lon.
+
+    Tries the INSEE commune code, then the postal code, then the department
+    centroid. Returns (None, None) for country/region-level offers ("France")
+    that cannot be placed on a map.
+    """
+    coords = _load_communes_coords()
+    for key, table in ((insee, coords["insee"]), (code_postal, coords["cp"])):
+        if key and key in table:
+            lat, lon = table[key]
+            return lat, lon
+    if libelle:
+        department = _split_department(libelle)
+        if department and department in coords["dept"]:
+            lat, lon = coords["dept"][department]
+            return lat, lon
+    return None, None
 
 
 def _build_fts_weights_literal() -> str:
@@ -179,7 +243,11 @@ async def search_jobs_vector_hybrid(
                 js.entreprise->>'nom' AS entreprise,
                 js.lieuTravail->>'libelle' AS lieu,
                 js.typeContratLibelle,
-                js.dateCreation
+                js.dateCreation,
+                js.lieuTravail->>'latitude' AS latitude,
+                js.lieuTravail->>'longitude' AS longitude,
+                js.lieuTravail->>'commune' AS commune,
+                js.lieuTravail->>'codePostal' AS code_postal
             FROM jobs_gold jg
             JOIN jobs_silver js ON jg.job_id = js.job_id
             WHERE jg.fts_tokens IS NOT NULL
@@ -219,7 +287,8 @@ async def search_jobs_vector_hybrid(
               + %(fts_w)s * LEAST(1.0, idf_sum / (SELECT total FROM idf_norm))
               + %(title_w)s * LEAST(1.0, (title_score * (SELECT count(*) FROM ranked)) / %(title_ref)s)
             ))::float8 AS match_score,
-            intitule, entreprise, lieu, typeContratLibelle, dateCreation, matched_terms
+            intitule, entreprise, lieu, typeContratLibelle, dateCreation, matched_terms,
+            latitude, longitude, commune, code_postal
         FROM rescored
         ORDER BY match_score DESC
         LIMIT %(top_k)s;
@@ -277,7 +346,19 @@ async def search_jobs_vector_hybrid(
             type_contrat,
             date_creation,
             matched_terms,
+            raw_latitude,
+            raw_longitude,
+            commune,
+            code_postal,
         ) = r
+
+        # Most offers already carry coordinates; the rest are placed via the
+        # commune lookup (INSEE/postal/department), or left off the map.
+        latitude = _to_float(raw_latitude)
+        longitude = _to_float(raw_longitude)
+        if latitude is None or longitude is None:
+            latitude, longitude = resolve_coordinates(commune, code_postal, lieu)
+
         hybrid_results.append(
             {
                 "job_id": job_id,
@@ -291,6 +372,8 @@ async def search_jobs_vector_hybrid(
                 "type_contrat": type_contrat,
                 "date_creation": date_creation,
                 "matching_terms": matched_terms or [],
+                "latitude": latitude,
+                "longitude": longitude,
             }
         )
 
@@ -334,6 +417,8 @@ async def search_jobs_vector_hybrid(
                 "type_contrat": job["type_contrat"] or "",
                 "date_creation": job["date_creation"] or "",
                 "matching_terms": job["matching_terms"],
+                "latitude": job["latitude"],
+                "longitude": job["longitude"],
             }
         )
 
