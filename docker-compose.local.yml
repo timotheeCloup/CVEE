@@ -1,0 +1,15 @@
+# Override for `just dev-local`: point the dev API at the local pgvector
+# database (seeded by `just ingest-sandbox`) instead of the real Supabase one.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up
+services:
+  cvee-api:
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: cvee_db
+    depends_on:
+      postgres:
+        condition: service_healthy

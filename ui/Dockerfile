@@ -29,7 +29,7 @@ USER app
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8080/_stcore/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/_stcore/health', timeout=4)"
 
 ENTRYPOINT ["sh", "-c"]
 CMD ["streamlit run app.py --server.port ${PORT:-8080} --server.address 0.0.0.0"]

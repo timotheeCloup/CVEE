@@ -42,6 +42,10 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         "CDI",
         "2025-06-01T00:00:00Z",
         ["python", "fastapi"],
+        "48.8566",
+        "2.3522",
+        None,
+        None,
     )
 
     mock_pool = AsyncMock()
@@ -71,6 +75,8 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         assert results[0]["job_id"] == "123ABC"
         assert "similarity_score" in results[0]
         assert results[0]["matching_terms"] == ["python", "fastapi"]
+        assert results[0]["latitude"] == 48.8566
+        assert results[0]["longitude"] == 2.3522
 
         # No filters -> both filter params are NULL (no corpus restriction).
         sql_params = mock_cursor.execute.call_args_list[1].args[1]
@@ -92,6 +98,10 @@ async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
         "CDI",
         "2025-06-01T00:00:00Z",
         ["python"],
+        None,
+        None,
+        "69123",
+        None,
     )
 
     mock_pool = AsyncMock()
@@ -121,3 +131,35 @@ async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
         sql_params = mock_cursor.execute.call_args_list[1].args[1]
         assert sql_params["departements"] == ["69"]
         assert sql_params["types_contrat"] == ["CDI"]
+
+        # No coordinates in the offer -> resolved from the INSEE code.
+        assert results[0]["latitude"] == 45.758
+        assert results[0]["longitude"] == 4.8351
+
+
+def test_resolve_coordinates_prefers_insee_then_postal_then_department() -> None:
+    from utils import resolve_coordinates
+
+    assert resolve_coordinates("69123", "69001", "69 - Lyon") == (45.758, 4.8351)
+    assert resolve_coordinates(None, "69001", "69 - Lyon") == (45.7701, 4.8264)
+    assert resolve_coordinates(None, None, "69 - Rhône") == (45.8507, 4.6695)
+    assert resolve_coordinates(None, None, "75 - Paris") == (48.8602, 2.3442)
+
+
+def test_resolve_coordinates_returns_none_for_unmappable() -> None:
+    from utils import resolve_coordinates
+
+    assert resolve_coordinates(None, None, "France") == (None, None)
+    assert resolve_coordinates(None, None, "Île-de-France") == (None, None)
+    assert resolve_coordinates(None, None, None) == (None, None)
+    assert resolve_coordinates(None, "99999", " (FRONTALIER)") == (None, None)
+
+
+def test_to_float_handles_invalid_values() -> None:
+    from utils import _to_float
+
+    assert _to_float(None) is None
+    assert _to_float("") is None
+    assert _to_float("abc") is None
+    assert _to_float("48.8566") == 48.8566
+    assert _to_float(2.3522) == 2.3522

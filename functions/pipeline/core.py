@@ -141,15 +141,11 @@ def _databricks_already_produced(bucket_name):
     return silver_exists and gold_exists
 
 
-def _file_updated(fs, path):
-    """Return a GCS object's ``updated`` timestamp as a naive datetime."""
-    try:
-        updated = fs.info(path).get("updated", datetime.min)
-    except Exception:
-        return datetime.min
-    if isinstance(updated, str):
-        updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-    return updated.replace(tzinfo=None) if updated.tzinfo else updated
+def _parse_updated(value):
+    """Return a GCS ``updated`` value as a naive datetime for comparison."""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return value.replace(tzinfo=None) if value.tzinfo else value
 
 
 def _list_raw_files(bucket_name, days=None):
@@ -159,34 +155,29 @@ def _list_raw_files(bucket_name, days=None):
     days=N   → all files from last N days
     """
     fs = gcsfs.GCSFileSystem()
-    base = f"gs://{bucket_name}/{PREFIX_RAW}/"
+    base = f"gs://{bucket_name}/{PREFIX_RAW}"
     try:
-        all_files = fs.glob(f"{base}*.parquet")
+        # A single detailed listing carries each object's ``updated`` timestamp,
+        # avoiding one metadata request per file as the bucket grows.
+        entries = fs.ls(base, detail=True)
     except FileNotFoundError:
         return []
 
-    if not all_files:
+    files = [e for e in entries if e["name"].endswith(".parquet")]
+    if not files:
         return []
+
+    latest = max(files, key=lambda e: _parse_updated(e["updated"]))
 
     if days is None:
         # Most recently written file, not the lexicographically largest name:
         # backfill files (jobs_raw_<min>_<max>_<ts>.parquet) sort below the
         # daily ones (jobs_raw_<ts>.parquet) because '-' < '0'.
-        return [max(all_files, key=lambda f: _file_updated(fs, f))]
+        return [latest["name"]]
 
     cutoff = datetime.now() - timedelta(days=days)
-    recent = []
-    for f in all_files:
-        try:
-            info = fs.info(f)
-            updated = info.get("updated", datetime.min)
-            if isinstance(updated, str):
-                updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-            if updated.replace(tzinfo=None) >= cutoff:
-                recent.append(f)
-        except Exception:
-            continue
-    return sorted(recent) if recent else [max(all_files, key=lambda f: _file_updated(fs, f))]
+    recent = [e["name"] for e in files if _parse_updated(e["updated"]) >= cutoff]
+    return sorted(recent) if recent else [latest["name"]]
 
 
 def _deduplicate(df):

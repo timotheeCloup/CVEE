@@ -1,3 +1,5 @@
 # Core dependencies
 streamlit
 requests
+pandas
+pydeck
