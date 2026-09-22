@@ -19,8 +19,13 @@ def _parse_gcs_time(t):
     return datetime.fromisoformat(str(t).replace("Z", "+00:00"))
 
 
-def get_latest_batch_parquet_files(bucket, prefix):
-    """Return list of parquet GCS URIs from the most recent day"""
+def get_latest_batch_parquet_files(bucket, prefix, date_min=None, date_max=None):
+    """Return the parquet GCS URIs to ingest.
+
+    No bounds → files from the most recent day only (daily ingestion).
+    date_min/date_max (YYYY-MM-DD) → every file written within that range
+    (backfill).
+    """
     fs = gcsfs.GCSFileSystem()
     base = f"gs://{bucket}/{prefix}"
     try:
@@ -35,8 +40,21 @@ def get_latest_batch_parquet_files(bucket, prefix):
     if not parquet_files:
         return []
 
-    latest_day = max(_parse_gcs_time(f["updated"]).date() for f in parquet_files)
-    return [f["name"] for f in parquet_files if _parse_gcs_time(f["updated"]).date() == latest_day]
+    if date_min is None and date_max is None:
+        latest_day = max(_parse_gcs_time(f["updated"]).date() for f in parquet_files)
+        return [
+            f["name"] for f in parquet_files if _parse_gcs_time(f["updated"]).date() == latest_day
+        ]
+
+    selected = []
+    for f in parquet_files:
+        day = _parse_gcs_time(f["updated"]).date().isoformat()
+        if date_min and day < date_min:
+            continue
+        if date_max and day > date_max:
+            continue
+        selected.append(f["name"])
+    return selected
 
 
 def read_parquet_from_gcs(gcs_path):
@@ -52,7 +70,16 @@ def delete_old_records(cursor, days=DAYS_BEFORE_PURGE):
     logger.info("old_records_deleted", count=cursor.rowcount)
 
 
-def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
+def main(
+    bucket_name,
+    sb_host,
+    sb_port,
+    sb_user,
+    sb_password,
+    sb_name,
+    date_min=None,
+    date_max=None,
+):
     """Ingest jobs from GCS (silver + gold) → Supabase"""
 
     PREFIX_SILVER = "jobs_silver/"
@@ -74,8 +101,12 @@ def main(bucket_name, sb_host, sb_port, sb_user, sb_password, sb_name):
     ]
 
     # Get latest batch files from GCS
-    silver_keys = get_latest_batch_parquet_files(bucket_name, PREFIX_SILVER)
-    gold_keys = get_latest_batch_parquet_files(bucket_name, PREFIX_GOLD)
+    silver_keys = get_latest_batch_parquet_files(
+        bucket_name, PREFIX_SILVER, date_min=date_min, date_max=date_max
+    )
+    gold_keys = get_latest_batch_parquet_files(
+        bucket_name, PREFIX_GOLD, date_min=date_min, date_max=date_max
+    )
     logger.info("gcs_listing", silver_count=len(silver_keys), gold_count=len(gold_keys))
     if gold_keys:
         logger.info("gold_files", files=gold_keys)

@@ -168,7 +168,7 @@ async def test_deduplicate_no_id_column() -> None:
 @pytest.mark.asyncio
 async def test_list_raw_files_no_files() -> None:
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(side_effect=FileNotFoundError)
+    mock_fs.ls = MagicMock(side_effect=FileNotFoundError)
 
     with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
         from core import _list_raw_files
@@ -180,7 +180,7 @@ async def test_list_raw_files_no_files() -> None:
 @pytest.mark.asyncio
 async def test_list_raw_files_empty() -> None:
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(return_value=[])
+    mock_fs.ls = MagicMock(return_value=[])
 
     with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
         from core import _list_raw_files
@@ -192,25 +192,47 @@ async def test_list_raw_files_empty() -> None:
 @pytest.mark.asyncio
 async def test_list_raw_files_latest_only() -> None:
     files = [
-        "gs://bucket/jobs_raw/job_20250601.parquet",
-        "gs://bucket/jobs_raw/job_20250602.parquet",
+        {"name": "gs://bucket/jobs_raw/job_20250601.parquet", "updated": "2025-06-01T00:00:00Z"},
+        {"name": "gs://bucket/jobs_raw/job_20250602.parquet", "updated": "2025-06-02T00:00:00Z"},
     ]
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(return_value=files)
+    mock_fs.ls = MagicMock(return_value=files)
 
     with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
         from core import _list_raw_files
 
         result = _list_raw_files("bucket", days=None)
-        assert len(result) == 1
-        assert result[0] == files[-1]
+        assert result == [files[-1]["name"]]
+
+
+@pytest.mark.asyncio
+async def test_list_raw_files_latest_uses_updated_not_name() -> None:
+    # A backfill file (jobs_raw_<min>_<max>_<ts>) sorts below a daily file
+    # (jobs_raw_<ts>) because '-' < '0', but it is the most recently written.
+    daily = "gs://bucket/jobs_raw/jobs_raw_20260921_210000.parquet"
+    backfill = "gs://bucket/jobs_raw/jobs_raw_2026-09-18_2026-09-18_120000.parquet"
+    mock_fs = MagicMock()
+    mock_fs.ls = MagicMock(
+        return_value=[
+            {"name": daily, "updated": "2026-09-21T21:00:00Z"},
+            {"name": backfill, "updated": "2026-09-22T22:00:00Z"},
+        ]
+    )
+
+    with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
+        from core import _list_raw_files
+
+        assert _list_raw_files("bucket", days=None) == [backfill]
 
 
 @pytest.mark.asyncio
 async def test_run_pipeline_basic() -> None:
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(return_value=["gs://bucket/jobs_raw/test.parquet"])
-    mock_fs.info = MagicMock(return_value={"updated": "2025-06-01T00:00:00Z"})
+    mock_fs.ls = MagicMock(
+        return_value=[
+            {"name": "gs://bucket/jobs_raw/test.parquet", "updated": "2025-06-01T00:00:00Z"}
+        ]
+    )
 
     test_df = pl.DataFrame(
         {
@@ -245,7 +267,7 @@ async def test_run_pipeline_basic() -> None:
 @pytest.mark.asyncio
 async def test_run_pipeline_no_files() -> None:
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(side_effect=FileNotFoundError)
+    mock_fs.ls = MagicMock(side_effect=FileNotFoundError)
 
     with patch("core.gcsfs.GCSFileSystem", return_value=mock_fs):
         from core import run_pipeline
@@ -258,8 +280,11 @@ async def test_run_pipeline_no_files() -> None:
 @pytest.mark.asyncio
 async def test_run_pipeline_with_duplicates() -> None:
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(return_value=["gs://bucket/jobs_raw/test.parquet"])
-    mock_fs.info = MagicMock(return_value={"updated": "2025-06-01T00:00:00Z"})
+    mock_fs.ls = MagicMock(
+        return_value=[
+            {"name": "gs://bucket/jobs_raw/test.parquet", "updated": "2025-06-01T00:00:00Z"}
+        ]
+    )
 
     test_df = pl.DataFrame(
         {
@@ -294,8 +319,11 @@ async def test_run_pipeline_with_duplicates() -> None:
 @pytest.mark.asyncio
 async def test_run_pipeline_max_jobs() -> None:
     mock_fs = MagicMock()
-    mock_fs.glob = MagicMock(return_value=["gs://bucket/jobs_raw/test.parquet"])
-    mock_fs.info = MagicMock(return_value={"updated": "2025-06-01T00:00:00Z"})
+    mock_fs.ls = MagicMock(
+        return_value=[
+            {"name": "gs://bucket/jobs_raw/test.parquet", "updated": "2025-06-01T00:00:00Z"}
+        ]
+    )
 
     test_df = pl.DataFrame(
         {

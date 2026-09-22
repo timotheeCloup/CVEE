@@ -105,11 +105,11 @@ def _mock_api_module_deps():
 
 @pytest.fixture(autouse=True)
 def _add_src_to_path():
-    """Add api/ and functions/pipeline/ to sys.path for test imports."""
+    """Add api/ and functions/* to sys.path for test imports."""
     from pathlib import Path
 
     root = Path(__file__).parent.parent
-    for subdir in ("api", "functions/pipeline"):
+    for subdir in ("api", "functions/pipeline", "functions/api-to-gcs", "functions/ingest-db"):
         p = root / subdir
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))

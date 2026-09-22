@@ -30,6 +30,13 @@ def ingest_db_cf(request):
         logger.info("starting_ingest_db")
         config = get_config()
 
+        # date_min/date_max ingest every batch written in that range (backfill);
+        # without them, only the most recent day is ingested (daily run).
+        date_min = request.args.get("date_min")
+        date_max = request.args.get("date_max")
+        if date_min or date_max:
+            logger.info("ingest_backfill_mode", date_min=date_min, date_max=date_max)
+
         logger.info("step_ingestion")
         ingest_db_main(
             bucket_name=config["GCS_BUCKET_NAME"],
@@ -38,6 +45,8 @@ def ingest_db_cf(request):
             sb_user=config["SB_USER"],
             sb_password=config["SB_PASSWORD"],
             sb_name=config["SB_NAME"],
+            date_min=date_min,
+            date_max=date_max,
         )
 
         logger.info("step_cleanup")

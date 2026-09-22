@@ -101,6 +101,13 @@ workflow:
 backfill date_min date_max:
     uv run python scripts/backfill.py --date-min {{date_min}} --date-max {{date_max}}
 
+# Backfill ingestion: ingest the silver/gold batches already in GCS for a
+# period (no re-fetch). Idempotent: safe to re-run.
+# e.g. `just pipe 2026-09-01 2026-09-22`
+pipe date_min date_max:
+    curl -fsS -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/ingest-db-cf?date_min={{date_min}}&date_max={{date_max}}"
+    echo
+
 # ── Local dev stack (pgvector + API + UI) ──
 
 # Start the local pgvector database (only needed by `just ingest-sandbox`)
