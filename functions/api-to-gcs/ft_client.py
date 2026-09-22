@@ -47,8 +47,12 @@ def _build_params(
         "niveauFormation": niveau_formation,
     }
     if min_date and max_date:
-        params["minDateCreation"] = min_date
-        params["maxDateCreation"] = max_date
+        # France Travail expects ISO-8601 datetimes on minCreationDate /
+        # maxCreationDate. minDateCreation/maxDateCreation (without "Creation")
+        # are not recognised and are silently ignored, returning the default
+        # window instead of the requested range.
+        params["minCreationDate"] = f"{min_date}T00:00:00Z"
+        params["maxCreationDate"] = f"{max_date}T23:59:59Z"
     else:
         params["publieeDepuis"] = publiee_depuis
     return params
