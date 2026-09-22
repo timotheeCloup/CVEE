@@ -36,22 +36,24 @@ FROM python:3.12-slim AS runtime
 RUN groupadd -r app && useradd -r -g app app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY --from=exporter /export/onnx_model /app/onnx_model
+# Keep the model outside /app so a dev bind-mount of the source code (docker
+# compose) does not shadow it.
+COPY --from=exporter /export/onnx_model /onnx_model
 
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
-ENV ONNX_MODEL_DIR=/app/onnx_model
+ENV ONNX_MODEL_DIR=/onnx_model
 ENV PORT=8080
 
 WORKDIR /app
-COPY app.py embed_cv_search.py utils.py models.py config.py stopwords.json ./
+COPY app.py embed_cv_search.py utils.py models.py config.py stopwords.json communes_coords.json ./
 
 USER app
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=4)"
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

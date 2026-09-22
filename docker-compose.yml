@@ -22,20 +22,23 @@ services:
     ports:
       - "8000:8080"
     volumes:
-    - ./api:/app
+      - ./api:/app
+    # Auto-reload on source changes (the bind-mount above shadows /app).
+    command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+    # Read-only against the real Supabase database (same data as production),
+    # mirroring the Cloud Run dev environment. The API only runs SELECTs.
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: cvee_db
-    depends_on:
-      postgres:
-        condition: service_healthy
+      DB_HOST: ${SB_HOST}
+      DB_PORT: ${SB_PORT}
+      DB_USER: ${SB_USER}
+      DB_PASSWORD: ${SB_PASSWORD}
+      DB_NAME: ${SB_NAME}
   cvee-ui:
     build: ./ui
     ports:
       - "8501:8080"
+    volumes:
+      - ./ui:/app
     environment:
       API_URL: http://cvee-api:8080/embed-cv
     depends_on:

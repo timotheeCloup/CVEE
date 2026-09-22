@@ -14,6 +14,8 @@ class JobResult(BaseModel):
     type_contrat: str = ""
     date_creation: str = ""
     matching_terms: list[str] = []
+    latitude: float | None = None
+    longitude: float | None = None
 
     model_config = {"from_attributes": True}
 
