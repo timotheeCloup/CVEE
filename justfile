@@ -100,23 +100,12 @@ workflow:
 backfill date_min date_max:
     uv run python scripts/backfill.py --date-min {{date_min}} --date-max {{date_max}}
 
-# Backfill ingestion over a date range, day by day, via the deployed CFs
-# (api-to-gcs → pipeline → ingest). Idempotent: safe to re-run to resume.
-# e.g. `just pipe 2026-09-01 2026-09-18`
+# Backfill ingestion: ingest the silver/gold batches already in GCS for a
+# period (no re-fetch). Idempotent: safe to re-run.
+# e.g. `just pipe 2026-09-01 2026-09-22`
 pipe date_min date_max:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="https://{{REGION}}-{{PROJECT}}.cloudfunctions.net"
-    day="{{date_min}}"
-    while [[ "$day" <= "{{date_max}}" ]]; do
-      echo "── $day ──"
-      curl -fsS -X POST "$base/api-to-gcs-cf?date_min=$day&date_max=$day"
-      curl -fsS -X POST "$base/pipeline-cf?force=1"
-      curl -fsS -X POST "$base/ingest-db-cf"
-      echo
-      day=$(date -I -d "$day + 1 day")
-    done
-    echo "✅ Backfill complete: {{date_min}} → {{date_max}}"
+    curl -fsS -X POST "https://{{REGION}}-{{PROJECT}}.cloudfunctions.net/ingest-db-cf?date_min={{date_min}}&date_max={{date_max}}"
+    echo
 
 # ── Dev ──
 

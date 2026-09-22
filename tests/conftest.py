@@ -109,7 +109,7 @@ def _add_src_to_path():
     from pathlib import Path
 
     root = Path(__file__).parent.parent
-    for subdir in ("api", "functions/pipeline", "functions/api-to-gcs"):
+    for subdir in ("api", "functions/pipeline", "functions/api-to-gcs", "functions/ingest-db"):
         p = root / subdir
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
