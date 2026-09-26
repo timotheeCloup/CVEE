@@ -114,8 +114,10 @@ resource "google_cloudfunctions2_function" "pipeline" {
 
   service_config {
     max_instance_count = 1
-    available_memory   = "2048M"
-    timeout_seconds    = 3600
+    # 2 GiB is enough once core.py batches embeddings at 8 (peak ~0.95 GiB);
+    # see functions/pipeline/core.py. Keeping memory low stays in free tier.
+    available_memory = "2048M"
+    timeout_seconds  = 3600
   }
 
   depends_on = [google_secret_manager_secret_version.cvee_v1]
