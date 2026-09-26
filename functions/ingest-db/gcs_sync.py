@@ -7,8 +7,7 @@ import pandas as pd
 import psycopg2
 import structlog
 from psycopg2.extras import execute_values
-
-DAYS_BEFORE_PURGE = 30
+from storage_budget import budget_from_config, enforce_storage_budget
 
 logger = structlog.get_logger()
 
@@ -61,13 +60,6 @@ def read_parquet_from_gcs(gcs_path):
     """Read parquet file from GCS into DataFrame"""
     fs = gcsfs.GCSFileSystem()
     return pd.read_parquet(gcs_path, filesystem=fs)
-
-
-def delete_old_records(cursor, days=DAYS_BEFORE_PURGE):
-    """Delete old records from jobs_silver table"""
-    sql = "DELETE FROM jobs_silver WHERE ingestion_date < CURRENT_DATE - INTERVAL '%s days';"
-    cursor.execute(sql, (days,))
-    logger.info("old_records_deleted", count=cursor.rowcount)
 
 
 def main(
@@ -205,7 +197,11 @@ def main(
             conn.commit()
             logger.info("gold_inserted", path=gcs_path, count=len(rows))
 
-    delete_old_records(cur, days=30)
+    # Retention is now budget-driven: fill the free tier up to STORAGE_HIGH_MB,
+    # then trim the oldest offers back down to STORAGE_LOW_MB (hysteresis) so the
+    # next ingestions have room. Replaces the previous fixed 30-day cutoff.
+    high_bytes, low_bytes = budget_from_config()
+    enforce_storage_budget(cur, high_bytes, low_bytes)
 
     # Rebuild the term document frequencies so the API can weight CV terms by
     # rarity (IDF). Safe to run on every ingest: the table is small.
