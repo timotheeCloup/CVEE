@@ -3,6 +3,7 @@ ft_client_id     = "PAR_xxxxxxxx"
 ft_client_secret = "xxxxxxxx"
 sb_user          = "postgres.xxxxxxxx"
 sb_password      = "xxxxxxxx"
+alert_email      = "you@example.com"
 
 # ── Optional (defaults shown) ──
 project_id  = "cvee-20260208"
