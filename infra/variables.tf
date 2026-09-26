@@ -97,6 +97,12 @@ variable "db_password" {
   sensitive   = true
 }
 
+# ── Monitoring ──
+variable "alert_email" {
+  description = "Email address that receives Cloud Monitoring alerts (e.g. failed ETL workflow)"
+  type        = string
+}
+
 # ── Other ──
 variable "embedding_api_url" {
   description = "Internal embedding API URL (local dev)"
