@@ -20,7 +20,11 @@ torch.set_num_threads(1)
 logger = structlog.get_logger()
 
 MODEL_NAME = "antoinelouis/french-me5-small"
-BATCH_SIZE = 32
+MAX_SEQ = 512
+# Smaller batches keep the attention peak well inside the 2 GiB Cloud Function
+# limit (measured: batch 32 peaks ~1.33 GiB, batch 8 ~0.95 GiB, with no quality
+# loss since the 512-token context is preserved).
+BATCH_SIZE = 8
 
 PREFIX_RAW = "jobs_raw"
 PREFIX_SILVER = "jobs_silver"
@@ -265,6 +269,7 @@ def run_pipeline(bucket_name, days=None, max_jobs=None, force=False):
 
     logger.info("step_embeddings", model=MODEL_NAME)
     model = SentenceTransformer(MODEL_NAME, device="cpu")
+    model.max_seq_length = MAX_SEQ
     texts = df["vector_text_input"].fill_null("").to_list()
     embeddings = model.encode(
         texts, batch_size=BATCH_SIZE, show_progress_bar=True, convert_to_numpy=True
