@@ -54,7 +54,7 @@ Traditional job boards match you based on keywords. CVEE analyzes your entire CV
 2. **Transform** — Bronze → Silver (HTML cleaning, JSON aggregation) → Gold (384-dim embeddings)
    - **Primary:** Databricks (PySpark + Delta Lake)
    - **Fallback:** Cloud Function `pipeline-cf` (Polars), triggered if Databricks job has failed
-3. **Ingest** (`ingest-db-cf`) — GCS Silver + Gold → Supabase (upsert), dead job cleanup
+3. **Ingest** (`ingest-db-cf`) — GCS Silver + Gold → Supabase (upsert), dead job cleanup, storage-budget retention
 4. **Search** — CV upload → FastAPI embedding → hybrid pgvector + FTS + RRF → ranked results
 
 ### Hybrid Search Algorithm
