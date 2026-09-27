@@ -20,7 +20,8 @@ Traditional job boards match you based on keywords. CVEE analyzes your entire CV
 
 ## Features
 
-- **Hybrid Semantic Search** — Cosine similarity (pgvector) + full-text search (PostgreSQL `ts_rank`) + title matching, combined via Reciprocal Rank Fusion (RRF)
+- **Hybrid Semantic Search** — Cosine similarity (pgvector) + IDF-weighted full-text search, each min-max normalized and fused into a single match score
+- **Paginated Results** — Browse the ranked offers 100 at a time (up to 5 pages), with live link verification per page
 - **Real-Time Matching** — Upload your CV, get ranked results with keyword highlighting in seconds
 - **Multilingual Embeddings** — [`antoinelouis/french-me5-small`](https://huggingface.co/antoinelouis/french-me5-small) (384-dim)
 - **Automated ETL Pipeline** — Nightly ingestion, cleaning, deduplication, embedding generation, and database sync via Cloud Workflows
@@ -55,14 +56,16 @@ Traditional job boards match you based on keywords. CVEE analyzes your entire CV
    - **Primary:** Databricks (PySpark + Delta Lake)
    - **Fallback:** Cloud Function `pipeline-cf` (Polars), triggered if Databricks job has failed
 3. **Ingest** (`ingest-db-cf`) — GCS Silver + Gold → Supabase (upsert), dead job cleanup, storage-budget retention
-4. **Search** — CV upload → FastAPI embedding → hybrid pgvector + FTS + RRF → ranked results
+4. **Search** — CV upload → FastAPI embedding → hybrid pgvector + FTS → ranked, paginated results
 
 ### Hybrid Search Algorithm
 
-The matching engine combines two ranking signals :
+The matching engine combines two ranking signals, each min-max normalized over the candidate set before a weighted fusion into the match score:
 
-- **Semantic Similarity** — Cosine distance between CV and job embeddings via pgvector `<->` operator
-- **Full-Text Search** — PostgreSQL `ts_rank` on weighted tsvector (title, description, competences), French stopwords removed
+- **Semantic Similarity** — Cosine between the CV and job embeddings via pgvector `<=>`, centered on the corpus mean to counter the embedding space's anisotropy (every offer otherwise sits at ~0.87 cosine from every other)
+- **Keyword Overlap** — IDF-weighted overlap between the CV's rarest terms and the job tsvector (title, description, competences); terms unique to the corpus (proper nouns, emails) are dropped as noise
+
+The CV is embedded from a dense query (top of the CV) rather than the full text, and results are paginated (100 per page, up to 5 pages) with live link verification per page.
 
 ---
 

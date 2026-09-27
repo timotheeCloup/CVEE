@@ -18,6 +18,10 @@ HEALTH_URL = API_URL.rsplit("/embed-cv", 1)[0] + "/health"
 COLD_START_TIMEOUT = 10
 DEPARTEMENTS_FILE = os.path.join(os.path.dirname(__file__), "departements.json")
 
+# Pagination: mirrors the API (PAGE_SIZE offers per page, MAX_PAGE pages max).
+PAGE_SIZE = 100
+MAX_PAGE = 5
+
 # When true, the API is a private Cloud Run service and requests must carry an
 # identity token (audience = API base URL). The token is fetched from the
 # metadata server, so this only works from inside Cloud Run.
@@ -193,6 +197,12 @@ if "last_upload_id" not in st.session_state:
 if "results_cache" not in st.session_state:
     st.session_state.results_cache = {}
 
+if "page" not in st.session_state:
+    st.session_state.page = 1
+
+if "results_base_key" not in st.session_state:
+    st.session_state.results_base_key = None
+
 if "show_map" not in st.session_state:
     st.session_state.show_map = False
 
@@ -226,9 +236,9 @@ else:
     )
 
 
-def fetch_job_results(file_bytes, file_name, departements=None, types_contrat=None):
+def fetch_job_results(file_bytes, file_name, departements=None, types_contrat=None, page=1):
     """Get job results from the API given the CV file bytes and optional filters."""
-    data = {}
+    data = {"page": str(page)}
     if departements:
         data["departements"] = ",".join(departements)
     if types_contrat:
@@ -237,7 +247,7 @@ def fetch_job_results(file_bytes, file_name, departements=None, types_contrat=No
         response = requests.post(
             API_URL,
             files={"file": (file_name, file_bytes)},
-            data=data or None,
+            data=data,
             headers=api_headers(),
         )
         if response.status_code == 200:
@@ -409,6 +419,26 @@ def render_feed(jobs: list[dict]) -> None:
             c3.markdown(f"📅 {clean_date}")
 
 
+def render_pagination(page: int, count: int) -> None:
+    """Render the previous/next controls below the offer feed."""
+    prev_col, info_col, next_col = st.columns([1, 2, 1])
+    with prev_col:
+        if st.button("◀ Précédente", disabled=page <= 1, use_container_width=True):
+            st.session_state.page = page - 1
+            st.rerun()
+    with info_col:
+        st.markdown(
+            f"<div style='text-align:center;padding-top:8px;color:#888;'>"
+            f"Page {page} / {MAX_PAGE}</div>",
+            unsafe_allow_html=True,
+        )
+    with next_col:
+        has_more = page < MAX_PAGE and count >= PAGE_SIZE
+        if st.button("Suivante ▶", disabled=not has_more, use_container_width=True):
+            st.session_state.page = page + 1
+            st.rerun()
+
+
 def scroll_to_offer(job_id: str | None) -> None:
     """Scroll the page to the clicked offer's card, centered vertically.
 
@@ -473,11 +503,18 @@ if uploaded_file is not None:
                 st.session_state.show_map = not st.session_state.show_map
                 st.rerun()
 
-    cache_key = (
+    base_key = (
         current_upload_id,
         tuple(sorted(selected_departements)),
         tuple(sorted(selected_types)),
     )
+    # New upload or new filters -> back to the first page.
+    if st.session_state.results_base_key != base_key:
+        st.session_state.results_base_key = base_key
+        st.session_state.page = 1
+
+    page = st.session_state.page
+    cache_key = (*base_key, page)
     cache = st.session_state.results_cache
     if cache_key not in cache:
         file_bytes = uploaded_file.getvalue()
@@ -487,11 +524,12 @@ if uploaded_file is not None:
                 uploaded_file.name,
                 selected_departements,
                 selected_types,
+                page,
             )
     top_jobs = cache[cache_key]
 
     if top_jobs:
-        st.success(f"🔥 {len(top_jobs)} jobs trouvés !")
+        st.success(f"🔥 {len(top_jobs)} offres — page {page}")
 
         if st.session_state.show_map:
             feed_col, map_col = st.columns([0.62, 0.38], gap="large")
@@ -501,6 +539,8 @@ if uploaded_file is not None:
                 scroll_to_offer(render_offers_map(top_jobs))
         else:
             render_feed(top_jobs)
+
+        render_pagination(page, len(top_jobs))
     elif top_jobs is None:
         st.error("Le service API n'est pas disponible. Veuillez réessayer.")
     else:

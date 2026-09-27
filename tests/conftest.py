@@ -18,7 +18,8 @@ def sample_pdf_bytes() -> bytes:
         obj2 = b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
         obj3 = (
             b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R"
-            b"/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>"
+            b"/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+            b"/Encoding/WinAnsiEncoding>>>>>>"
             b"/Contents 4 0 R>>endobj\n"
         )
         obj4 = (
@@ -100,7 +101,13 @@ def _mock_api_module_deps():
         patch("embed_cv_search._get_model", return_value=MagicMock()),
         patch("utils._get_pool", new_callable=AsyncMock),
     ):
+        # The corpus centroid is cached per process; reset it so tests never
+        # leak a value (or a mock) into each other.
+        import utils
+
+        utils._centroid = None
         yield
+        utils._centroid = None
 
 
 @pytest.fixture(autouse=True)

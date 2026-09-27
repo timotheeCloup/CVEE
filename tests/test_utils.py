@@ -28,39 +28,58 @@ async def test_extract_text_from_pdf_invalid() -> None:
         extract_text_from_pdf(b"not-a-valid-pdf")
 
 
-@pytest.mark.asyncio
-async def test_search_jobs_vector_hybrid_returns_results() -> None:
-    mock_row = (
-        "123ABC",
-        0.72,
-        0.08,
-        0.30,
-        0.50,
-        "Développeur Python",
-        "TechCorp",
-        "Paris",
-        "CDI",
-        "2025-06-01T00:00:00Z",
-        ["python", "fastapi"],
-        "48.8566",
-        "2.3522",
-        None,
-        None,
-    )
+CENTROID = "[" + ",".join(["0"] * 384) + "]"
 
+
+def _mock_pool_with_row(row: tuple) -> tuple[AsyncMock, AsyncMock]:
+    """Build a mocked pool/connection/cursor returning one scored row."""
     mock_pool = AsyncMock()
     mock_conn = AsyncMock()
     mock_cursor = AsyncMock()
     mock_cursor.__aenter__ = AsyncMock(return_value=mock_cursor)
     mock_cursor.__aexit__ = AsyncMock(return_value=None)
     mock_cursor.execute = AsyncMock()
-    mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
+    mock_cursor.fetchone = AsyncMock(return_value=(CENTROID,))
+    mock_cursor.fetchall = AsyncMock(return_value=[row])
     mock_conn.cursor = MagicMock(return_value=mock_cursor)
     mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_conn.__aexit__ = AsyncMock(return_value=None)
     mock_pool.connection = MagicMock(return_value=mock_conn)
     mock_pool.__aenter__ = AsyncMock(return_value=mock_pool)
     mock_pool.__aexit__ = AsyncMock(return_value=None)
+    return mock_pool, mock_cursor
+
+
+def _sql_params(mock_cursor: AsyncMock) -> dict:
+    """Return the params dict of the main search query (not SET LOCAL/centroid)."""
+    for call in mock_cursor.execute.call_args_list:
+        if len(call.args) > 1 and isinstance(call.args[1], dict):
+            return call.args[1]
+    raise AssertionError("no parameterized query was executed")
+
+
+@pytest.mark.asyncio
+async def test_search_jobs_vector_hybrid_returns_results() -> None:
+    # Column order: job_id, cosine, fts_ratio, title, matched_terms, intitule,
+    # entreprise, lieu, type_contrat, date, lat, lon, commune, code_postal.
+    mock_row = (
+        "123ABC",
+        0.72,
+        0.08,
+        0.30,
+        ["python", "fastapi"],
+        "Développeur Python",
+        "TechCorp",
+        "Paris",
+        "CDI",
+        "2025-06-01T00:00:00Z",
+        "48.8566",
+        "2.3522",
+        None,
+        None,
+    )
+
+    mock_pool, mock_cursor = _mock_pool_with_row(mock_row)
 
     with patch("utils._get_pool", AsyncMock(return_value=mock_pool)):
         from utils import search_jobs_vector_hybrid
@@ -79,9 +98,10 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         assert results[0]["longitude"] == 2.3522
 
         # No filters -> both filter params are NULL (no corpus restriction).
-        sql_params = mock_cursor.execute.call_args_list[1].args[1]
+        sql_params = _sql_params(mock_cursor)
         assert sql_params["departements"] is None
         assert sql_params["types_contrat"] is None
+        assert sql_params["min_df"] == 2
 
 
 @pytest.mark.asyncio
@@ -91,30 +111,19 @@ async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
         0.72,
         0.08,
         0.30,
-        0.50,
+        ["python"],
         "Développeur Python",
         "TechCorp",
         "Lyon",
         "CDI",
         "2025-06-01T00:00:00Z",
-        ["python"],
         None,
         None,
         "69123",
         None,
     )
 
-    mock_pool = AsyncMock()
-    mock_conn = AsyncMock()
-    mock_cursor = AsyncMock()
-    mock_cursor.__aenter__ = AsyncMock(return_value=mock_cursor)
-    mock_cursor.__aexit__ = AsyncMock(return_value=None)
-    mock_cursor.execute = AsyncMock()
-    mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
-    mock_conn.cursor = MagicMock(return_value=mock_cursor)
-    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_conn.__aexit__ = AsyncMock(return_value=None)
-    mock_pool.connection = MagicMock(return_value=mock_conn)
+    mock_pool, mock_cursor = _mock_pool_with_row(mock_row)
 
     with patch("utils._get_pool", AsyncMock(return_value=mock_pool)):
         from utils import search_jobs_vector_hybrid
@@ -128,13 +137,35 @@ async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
         )
         assert len(results) == 1
 
-        sql_params = mock_cursor.execute.call_args_list[1].args[1]
+        sql_params = _sql_params(mock_cursor)
         assert sql_params["departements"] == ["69"]
         assert sql_params["types_contrat"] == ["CDI"]
 
         # No coordinates in the offer -> resolved from the INSEE code.
         assert results[0]["latitude"] == 45.758
         assert results[0]["longitude"] == 4.8351
+
+
+def test_repair_inter_char_spacing_repairs_mangled_text() -> None:
+    from utils import repair_inter_char_spacing
+
+    mangled = "I n g é n i e u r  e n  i n f o r m a t i q u e"
+    assert repair_inter_char_spacing(mangled) == "Ingénieur en informatique"
+
+
+def test_repair_inter_char_spacing_leaves_normal_text_untouched() -> None:
+    from utils import repair_inter_char_spacing
+
+    text = "Développeur Python backend avec 5 ans d'expérience"
+    assert repair_inter_char_spacing(text) == text
+
+
+def test_normalize_minmax() -> None:
+    from utils import _normalize
+
+    assert _normalize([]) == []
+    assert _normalize([3.0, 3.0]) == [1.0, 1.0]
+    assert _normalize([0.0, 5.0, 10.0]) == [0.0, 0.5, 1.0]
 
 
 def test_resolve_coordinates_prefers_insee_then_postal_then_department() -> None:

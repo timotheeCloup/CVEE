@@ -55,6 +55,38 @@ async def test_embed_cv_forwards_filters(
 
 
 @pytest.mark.asyncio
+async def test_embed_cv_forwards_page(
+    client: TestClient, mock_search_results: list[dict], sample_pdf_bytes: bytes
+) -> None:
+    with patch("app.embed_cv_and_search_async", new_callable=AsyncMock) as mock_search:
+        mock_search.return_value = mock_search_results
+
+        response = client.post(
+            "/embed-cv",
+            files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
+            data={"page": "3"},
+        )
+        assert response.status_code == 200
+        assert mock_search.await_args.kwargs["page"] == 3
+
+
+@pytest.mark.asyncio
+async def test_embed_cv_clamps_page(
+    client: TestClient, mock_search_results: list[dict], sample_pdf_bytes: bytes
+) -> None:
+    with patch("app.embed_cv_and_search_async", new_callable=AsyncMock) as mock_search:
+        mock_search.return_value = mock_search_results
+
+        response = client.post(
+            "/embed-cv",
+            files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
+            data={"page": "99"},
+        )
+        assert response.status_code == 200
+        assert mock_search.await_args.kwargs["page"] == 5
+
+
+@pytest.mark.asyncio
 async def test_embed_cv_rejects_non_pdf(client: TestClient) -> None:
     response = client.post(
         "/embed-cv",
