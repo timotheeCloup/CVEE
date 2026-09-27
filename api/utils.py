@@ -14,29 +14,23 @@ logger: Any = structlog.get_logger()
 
 # Pagination: each page holds PAGE_SIZE offers, plus PAGE_MARGIN extra scored
 # rows so the live dead-link check (which runs after ranking) can drop a few and
-# still fill the page. MAX_PAGE bounds how deep the UI can go.
+# still fill the page. There is no page cap: the whole corpus is ranked, so the
+# UI can page as deep as it wants.
 PAGE_SIZE: int = 100
 PAGE_MARGIN: int = 10
-MAX_PAGE: int = 5
 
 # Match score = EMBED_WEIGHT * cos_norm
 #              + FTS_WEIGHT   * fts_norm
 #              + TITLE_WEIGHT * title_score
 #
-# cos_norm and fts_norm are min-max normalized over the candidate set before
-# weighting: raw cosine sits in a very narrow band (~0.85-0.92 for every offer,
-# the embedding space is anisotropic) while fts_ratio spans 0-0.1, so applying
-# fixed weights to the raw values let the embedding dominate no matter what the
+# cos_norm and fts_norm are min-max normalized over the corpus before weighting:
+# raw cosine sits in a very narrow band (~0.85-0.92 for every offer, the
+# embedding space is anisotropic) while fts_ratio spans 0-0.1, so applying fixed
+# weights to the raw values let the embedding dominate no matter what the
 # weights said. Normalizing first makes the weights mean what they say.
 EMBED_WEIGHT: float = 0.4
 FTS_WEIGHT: float = 0.5
 TITLE_WEIGHT: float = 0.1
-# Title saturation reference. One matched title term contributes ~0.11 of
-# "matched weight", so TITLE_REF=2.0 keeps a single term a small boost and
-# requires several matching terms to saturate the title component. Kept low on
-# purpose: a lone title match is often a place/entity name, not a skill.
-TITLE_REF: float = 2.0
-FTS_REF: float = 15.0
 # Number of rarest CV terms kept for the keyword query and IDF weighting.
 FTS_MAX_TERMS: int = 50
 # Minimum corpus document frequency for a CV term to enter the keyword query.
@@ -44,14 +38,6 @@ FTS_MAX_TERMS: int = 50
 # carry a maximal IDF that inflates the normalization total and adds noise, so
 # they are dropped and only terms shared by at least two offers are kept.
 FTS_MIN_DF: int = 2
-# Jobs re-scored with the exact IDF overlap after a cheap pre-selection. Bounds
-# the per-row tsvector unnest so it never runs on the full corpus. Covers every
-# page (MAX_PAGE * PAGE_SIZE) with headroom for the pre-selection to differ from
-# the exact rescore.
-CANDIDATE_K: int = 1000
-
-# FTS weights for tsvector levels [C, B, A] (D=0 since unused)
-FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
 
 _db_pool: AsyncConnectionPool | None = None
 
@@ -166,12 +152,6 @@ def resolve_coordinates(
     return None, None
 
 
-def _build_fts_weights_literal() -> str:
-    """Build PostgreSQL tsvector weights literal string like '{0, 0.3, 0.6, 1.0}'"""
-    weights = [0] + FTS_WEIGHTS  # [D, C, B, A], D=0 unused
-    return "{" + ", ".join(str(w) for w in weights) + "}"
-
-
 async def _get_centroid(conn: Any, dim: int) -> str:
     """Return the corpus mean embedding as a pgvector literal, cached per process.
 
@@ -188,17 +168,6 @@ async def _get_centroid(conn: Any, dim: int) -> str:
             row = await cur.fetchone()
         _centroid = row[0] if row and row[0] else "[" + ",".join(["0"] * dim) + "]"
     return _centroid
-
-
-def _normalize(values: list[float]) -> list[float]:
-    """Min-max scale values to [0, 1]; all-equal values map to 1.0."""
-    if not values:
-        return []
-    lo, hi = min(values), max(values)
-    span = hi - lo
-    if span <= 0:
-        return [1.0] * len(values)
-    return [(v - lo) / span for v in values]
 
 
 async def search_jobs_vector_hybrid(
@@ -218,10 +187,12 @@ async def search_jobs_vector_hybrid(
               + FTS_WEIGHT   * fts_norm
               + TITLE_WEIGHT * title_score
 
-    where cos_norm and fts_norm are min-max scaled over the candidate set. Raw
+    where cos_norm and fts_norm are min-max scaled over the whole corpus. Raw
     cosine barely varies (anisotropic space), so weighting the raw values let the
     embedding dominate whatever the weights; normalizing first restores the
     intended balance and keeps the keyword signal alive deeper in the ranking.
+    Normalizing over the corpus (not the page) keeps the scores stable as the
+    user pages, since every page is ranked from the same scale.
 
     The cosine is centered on the corpus mean (see ``_get_centroid``) to spread
     out those near-identical values.
@@ -230,10 +201,6 @@ async def search_jobs_vector_hybrid(
     FTS_MAX_TERMS rarest terms shared by at least FTS_MIN_DF offers (unique
     terms are proper nouns/typos, not skills), and a job scores on the terms it
     actually shares with the CV.
-
-    Candidate selection is bounded: the CANDIDATE_K best jobs by a cheap
-    ts_rank/cosine/title score are re-scored with the exact IDF overlap, so the
-    per-row tsvector unnest never runs on the full corpus.
 
     Optional filters restrict the corpus before scoring:
       - departements: department codes (e.g. ["69", "75"]), matched against the
@@ -244,7 +211,7 @@ async def search_jobs_vector_hybrid(
     sorted by match score; the extra PAGE_MARGIN covers the live dead-link check.
     """
     t_start = time.time()
-    page = max(1, min(page, MAX_PAGE))
+    page = max(1, page)
     offset = (page - 1) * PAGE_SIZE
     limit = PAGE_SIZE + PAGE_MARGIN
 
@@ -255,14 +222,12 @@ async def search_jobs_vector_hybrid(
         logger.info("fts_prep", fts_chars=len(cv_text_fts), embedding_dim=len(embedding))
 
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
-        fts_weights_literal = _build_fts_weights_literal()
         centroid = await _get_centroid(conn, len(embedding))
 
-        # Three-stage query, fully server-side:
-        #  1. candidates: cheap cosine + ts_rank + title score over the corpus,
-        #     using a keyword query restricted to the rarest CV terms.
-        #  2. top_candidates: keep the CANDIDATE_K best to bound the next step.
-        #  3. rescored: exact IDF overlap (tsvector unnest) on those rows only.
+        # Two-stage query, fully server-side:
+        #  1. candidates: centered cosine + title score over the whole corpus.
+        #  2. rescored: exact IDF overlap (tsvector unnest) for every candidate,
+        #     so the full corpus is ranked and pagination is unbounded.
         # matched_terms returned for display are the shared CV/offer terms,
         # ordered by corpus rarity (rarest first).
         sql = """
@@ -317,8 +282,6 @@ async def search_jobs_vector_hybrid(
                 jg.job_id,
                 (1 - ((jg.embedding - %(centroid)s::vector)
                        <=> (%(embedding)s::vector - %(centroid)s::vector)))::float8 AS cosine_score,
-                COALESCE(ts_rank(%(fts_weights)s::float4[], jg.fts_tokens,
-                                 to_tsquery('french', (SELECT q FROM fts_query))), 0)::float8 AS fts_rank_score,
                 COALESCE(ts_rank(js.title_tsv,
                                  to_tsquery('french', (SELECT q FROM fts_query))), 0)::float8 AS title_score,
                 js.intitule,
@@ -336,22 +299,12 @@ async def search_jobs_vector_hybrid(
               AND (%(departements)s::text[] IS NULL OR split_part(js.lieuTravail->>'libelle', ' - ', 1) = ANY(%(departements)s::text[]))
               AND (%(types_contrat)s::text[] IS NULL OR js.typeContrat = ANY(%(types_contrat)s::text[]))
         ),
-        top_candidates AS (
-            SELECT c.*,
-                (%(embed_w)s * c.cosine_score
-                 + %(fts_w)s * LEAST(1.0, (c.fts_rank_score * (SELECT count(*) FROM ranked)) / %(fts_ref)s)
-                 + %(title_w)s * LEAST(1.0, (c.title_score * (SELECT count(*) FROM ranked)) / %(title_ref)s)
-                )::float8 AS provisional_score
-            FROM candidates c
-            ORDER BY provisional_score DESC
-            LIMIT %(candidate_k)s
-        ),
         rescored AS (
-            SELECT tc.*,
+            SELECT c.*,
                 COALESCE(m.idf_sum, 0)::float8 AS idf_sum,
                 COALESCE(m.matched_terms, ARRAY[]::text[]) AS matched_terms
-            FROM top_candidates tc
-            JOIN jobs_gold jg ON jg.job_id = tc.job_id
+            FROM candidates c
+            JOIN jobs_gold jg ON jg.job_id = c.job_id
             LEFT JOIN LATERAL (
                 SELECT sum(r.idf) AS idf_sum,
                        array_agg(COALESCE(d.display, r.term) ORDER BY r.df ASC) AS matched_terms
@@ -359,22 +312,37 @@ async def search_jobs_vector_hybrid(
                 JOIN ranked r ON r.term = t.lex
                 LEFT JOIN cv_display d ON d.stem = r.term
             ) m ON true
+        ),
+        with_ratio AS (
+            SELECT *, LEAST(1.0, idf_sum / (SELECT total FROM idf_norm))::float8 AS fts_ratio
+            FROM rescored
+        ),
+        normalized AS (
+            -- Min-max scale cosine and fts_ratio over the whole corpus so the
+            -- weights are meaningful and every page is ranked on the same scale.
+            SELECT *,
+                min(cosine_score) OVER () AS min_cos, max(cosine_score) OVER () AS max_cos,
+                min(fts_ratio) OVER () AS min_fts, max(fts_ratio) OVER () AS max_fts
+            FROM with_ratio
         )
         SELECT
-            job_id, cosine_score,
-            LEAST(1.0, idf_sum / (SELECT total FROM idf_norm))::float8 AS fts_ratio,
-            title_score, matched_terms,
+            job_id, cosine_score, fts_ratio, title_score, matched_terms,
+            LEAST(1.0, GREATEST(0.0,
+                %(embed_w)s * COALESCE((cosine_score - min_cos) / NULLIF(max_cos - min_cos, 0), 1.0)
+              + %(fts_w)s   * COALESCE((fts_ratio - min_fts) / NULLIF(max_fts - min_fts, 0), 1.0)
+              + %(title_w)s * title_score
+            ))::float8 AS match_score,
             intitule, entreprise, lieu, typeContratLibelle, dateCreation,
             latitude, longitude, commune, code_postal
-        FROM rescored
-        ORDER BY provisional_score DESC;
+        FROM normalized
+        ORDER BY match_score DESC
+        LIMIT %(limit)s OFFSET %(offset)s;
         """
 
         params = {
             "cv_text": cv_text_fts,
             "embedding": embedding_str,
             "centroid": centroid,
-            "fts_weights": fts_weights_literal,
             "max_terms": FTS_MAX_TERMS,
             "min_df": FTS_MIN_DF,
             "departements": departements or None,
@@ -382,9 +350,8 @@ async def search_jobs_vector_hybrid(
             "embed_w": EMBED_WEIGHT,
             "fts_w": FTS_WEIGHT,
             "title_w": TITLE_WEIGHT,
-            "fts_ref": FTS_REF,
-            "title_ref": TITLE_REF,
-            "candidate_k": CANDIDATE_K,
+            "limit": limit,
+            "offset": offset,
         }
 
         async with conn.cursor() as cur:
@@ -408,35 +375,19 @@ async def search_jobs_vector_hybrid(
     t_query = time.time()
     logger.info("query_execution", duration=round(t_query - t_conn, 3), results=len(results))
 
-    # Normalize each signal over the candidate set, then fuse. Doing this in
-    # Python (rather than SQL) keeps the SQL free of window functions and lets
-    # the raw cosine/fts values stay available for logging.
-    cos_norm = _normalize([r[1] for r in results])
-    fts_norm = _normalize([r[2] for r in results])
-    scored = [
-        (
-            r,
-            EMBED_WEIGHT * cos_norm[i] + FTS_WEIGHT * fts_norm[i] + TITLE_WEIGHT * r[3],
-        )
-        for i, r in enumerate(results)
-    ]
-    scored.sort(key=lambda x: x[1], reverse=True)
-
-    # The page slice; the PAGE_MARGIN extra rows absorb the dead-link check that
-    # runs after this function.
-    page_rows = scored[offset : offset + limit]
-
+    # Rows arrive already normalized, scored, sorted and sliced by the query.
     t_process = time.time()
     logger.info("processing", duration=round(t_process - t_query, 3))
 
     hybrid_results = []
-    for r, match_score in page_rows:
+    for r in results:
         (
             job_id,
             cosine_score,
             fts_score,
             title_score,
             matched_terms,
+            match_score,
             intitule,
             entreprise,
             lieu,

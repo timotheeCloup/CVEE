@@ -222,6 +222,7 @@ async def test_embed_cv_and_search_returns_results() -> None:
                 0.08,
                 0.30,
                 ["python"],
+                0.50,
                 "Développeur Python",
                 "TechCorp",
                 "Paris",

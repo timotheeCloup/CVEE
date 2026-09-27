@@ -18,9 +18,9 @@ HEALTH_URL = API_URL.rsplit("/embed-cv", 1)[0] + "/health"
 COLD_START_TIMEOUT = 10
 DEPARTEMENTS_FILE = os.path.join(os.path.dirname(__file__), "departements.json")
 
-# Pagination: mirrors the API (PAGE_SIZE offers per page, MAX_PAGE pages max).
+# Pagination: PAGE_SIZE offers per page, PAGINATION_WINDOW page numbers shown.
 PAGE_SIZE = 100
-MAX_PAGE = 5
+PAGINATION_WINDOW = 5
 
 # When true, the API is a private Cloud Run service and requests must carry an
 # identity token (audience = API base URL). The token is fetched from the
@@ -184,6 +184,43 @@ st.markdown(
     }
     .footer-link:hover {
         color: #667eea;
+    }
+
+    /* Pagination: Google-style plain text controls (blue links, active bold),
+       distinct from the gradient CTA button. The stButton wrapper is included so
+       these beat the button rule above. */
+    [class*="st-key-page_"] div[data-testid="stButton"] {
+        display: flex;
+        justify-content: center;
+    }
+    [class*="st-key-page_"] div[data-testid="stButton"] > button {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #1a73e8 !important;
+        font-weight: 400 !important;
+        font-size: 15px !important;
+        padding: 0.25rem 0.5rem !important;
+        min-height: 0 !important;
+    }
+    [class*="st-key-page_"] div[data-testid="stButton"] > button:hover {
+        background: rgba(26, 115, 232, 0.08) !important;
+        color: #1a73e8 !important;
+        text-decoration: underline !important;
+        transform: none !important;
+    }
+    [class*="st-key-page_"] div[data-testid="stButton"] > button:disabled {
+        background: transparent !important;
+        color: #c4c7c5 !important;
+    }
+    .st-key-page_active div[data-testid="stButton"] > button {
+        color: #202124 !important;
+        font-weight: 700 !important;
+    }
+    .st-key-page_active div[data-testid="stButton"] > button:hover {
+        background: transparent !important;
+        color: #202124 !important;
+        text-decoration: none !important;
     }
     </style>
     """,
@@ -420,21 +457,30 @@ def render_feed(jobs: list[dict]) -> None:
 
 
 def render_pagination(page: int, count: int) -> None:
-    """Render the previous/next controls below the offer feed."""
-    prev_col, info_col, next_col = st.columns([1, 2, 1])
-    with prev_col:
-        if st.button("◀ Précédente", disabled=page <= 1, use_container_width=True):
+    """Google-style controls: Précédent, a window of page numbers, Suivant.
+
+    There is no page cap; the window slides with the current page and Suivant is
+    disabled once a page returns fewer than PAGE_SIZE offers (last page reached).
+    """
+    has_next = count >= PAGE_SIZE
+    first = max(1, page - PAGINATION_WINDOW // 2)
+    numbers = range(first, first + PAGINATION_WINDOW)
+    # Spacers on both sides keep the controls centered.
+    slots = st.columns([1.5, 3] + [1] * PAGINATION_WINDOW + [3, 1.5])
+    inner = slots[1:-1]
+    with inner[0]:
+        if st.button("‹ Précédent", key="page_prev", disabled=page <= 1):
             st.session_state.page = page - 1
             st.rerun()
-    with info_col:
-        st.markdown(
-            f"<div style='text-align:center;padding-top:8px;color:#888;'>"
-            f"Page {page} / {MAX_PAGE}</div>",
-            unsafe_allow_html=True,
-        )
-    with next_col:
-        has_more = page < MAX_PAGE and count >= PAGE_SIZE
-        if st.button("Suivante ▶", disabled=not has_more, use_container_width=True):
+    for i, number in enumerate(numbers):
+        with inner[i + 1]:
+            if number == page:
+                st.button(str(number), key="page_active")
+            elif st.button(str(number), key=f"page_btn_{number}"):
+                st.session_state.page = number
+                st.rerun()
+    with inner[-1]:
+        if st.button("Suivant ›", key="page_next", disabled=not has_next):
             st.session_state.page = page + 1
             st.rerun()
 
@@ -529,8 +575,6 @@ if uploaded_file is not None:
     top_jobs = cache[cache_key]
 
     if top_jobs:
-        st.success(f"🔥 {len(top_jobs)} offres — page {page}")
-
         if st.session_state.show_map:
             feed_col, map_col = st.columns([0.62, 0.38], gap="large")
             with feed_col:

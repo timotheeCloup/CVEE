@@ -71,7 +71,24 @@ async def test_embed_cv_forwards_page(
 
 
 @pytest.mark.asyncio
-async def test_embed_cv_clamps_page(
+async def test_embed_cv_allows_deep_pages(
+    client: TestClient, mock_search_results: list[dict], sample_pdf_bytes: bytes
+) -> None:
+    # Pages are unbounded (no cap), only the lower bound is enforced.
+    with patch("app.embed_cv_and_search_async", new_callable=AsyncMock) as mock_search:
+        mock_search.return_value = mock_search_results
+
+        response = client.post(
+            "/embed-cv",
+            files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
+            data={"page": "42"},
+        )
+        assert response.status_code == 200
+        assert mock_search.await_args.kwargs["page"] == 42
+
+
+@pytest.mark.asyncio
+async def test_embed_cv_floors_page_at_one(
     client: TestClient, mock_search_results: list[dict], sample_pdf_bytes: bytes
 ) -> None:
     with patch("app.embed_cv_and_search_async", new_callable=AsyncMock) as mock_search:
@@ -80,10 +97,10 @@ async def test_embed_cv_clamps_page(
         response = client.post(
             "/embed-cv",
             files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
-            data={"page": "99"},
+            data={"page": "0"},
         )
         assert response.status_code == 200
-        assert mock_search.await_args.kwargs["page"] == 5
+        assert mock_search.await_args.kwargs["page"] == 1
 
 
 @pytest.mark.asyncio

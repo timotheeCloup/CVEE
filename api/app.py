@@ -11,7 +11,7 @@ from models import EmbedResponse, HealthResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from utils import MAX_PAGE, extract_text_from_pdf
+from utils import extract_text_from_pdf
 
 structlog.configure(
     processors=[
@@ -58,7 +58,7 @@ async def embed_cv(
     `departements` holds department codes (e.g. "69,75") and `types_contrat` holds
     contract codes (e.g. "CDI,CDD"). Empty values mean no filter.
 
-    `page` selects the results page (1-indexed, up to MAX_PAGE); each page holds
+    `page` selects the results page (1-indexed, unbounded); each page holds
     PAGE_SIZE offers. Paginating re-runs the (cheap) ranking and live-checks the
     page's links, so the rate limit is raised to allow paging through a CV.
 
@@ -69,7 +69,7 @@ async def embed_cv(
 
     departements_list = [d.strip() for d in departements.split(",") if d.strip()]
     types_contrat_list = [t.strip() for t in types_contrat.split(",") if t.strip()]
-    page = max(1, min(page, MAX_PAGE))
+    page = max(1, page)
 
     t_start = time.time()
 
