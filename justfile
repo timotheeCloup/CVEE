@@ -131,8 +131,12 @@ _dev mode:
     else
         label="Supabase (read-only, real offers)"
     fi
-    cleanup() { "${compose[@]}" down >/dev/null 2>&1 || true; }
-    trap cleanup INT TERM
+    # Remove only the containers this recipe owns (never the postgres service
+    # started by `dev-db`/`ingest-sandbox`), so nothing piles up after a
+    # Ctrl-C, a kill -9 or a laptop sleep that skipped the trap.
+    cleanup() { "${compose[@]}" rm -sf cvee-api cvee-ui >/dev/null 2>&1 || true; }
+    trap cleanup INT TERM EXIT
+    cleanup
     "${compose[@]}" up -d --build cvee-api cvee-ui
     printf 'Waiting for services'
     for _ in {1..60}; do
