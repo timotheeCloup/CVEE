@@ -3,6 +3,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+def test_build_embedding_query_truncates_and_strips() -> None:
+    from embed_cv_search import EMBED_QUERY_MAX_CHARS, build_embedding_query
+
+    long_cv = "x" * (EMBED_QUERY_MAX_CHARS + 500)
+    assert len(build_embedding_query(long_cv)) == EMBED_QUERY_MAX_CHARS
+    assert build_embedding_query("  Python SQL  ") == "Python SQL"
+
+
 @pytest.mark.asyncio
 async def test_clean_text_for_fts_removes_stopwords() -> None:
     from embed_cv_search import clean_text_for_fts
@@ -205,6 +213,7 @@ async def test_embed_cv_and_search_returns_results() -> None:
     mock_cursor.__aenter__ = AsyncMock(return_value=mock_cursor)
     mock_cursor.__aexit__ = AsyncMock(return_value=None)
     mock_cursor.execute = AsyncMock()
+    mock_cursor.fetchone = AsyncMock(return_value=("[" + ",".join(["0"] * 384) + "]",))
     mock_cursor.fetchall = AsyncMock(
         return_value=[
             (
@@ -212,13 +221,12 @@ async def test_embed_cv_and_search_returns_results() -> None:
                 0.72,
                 0.08,
                 0.30,
-                0.50,
+                ["python"],
                 "Développeur Python",
                 "TechCorp",
                 "Paris",
                 "CDI",
                 "2025-06-01",
-                ["python"],
                 "48.8566",
                 "2.3522",
                 None,

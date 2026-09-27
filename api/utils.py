@@ -12,18 +12,22 @@ from pypdf import PdfReader
 
 logger: Any = structlog.get_logger()
 
-TOP_K: int = 100
+# Pagination: each page holds PAGE_SIZE offers, plus PAGE_MARGIN extra scored
+# rows so the live dead-link check (which runs after ranking) can drop a few and
+# still fill the page. MAX_PAGE bounds how deep the UI can go.
+PAGE_SIZE: int = 100
+PAGE_MARGIN: int = 10
+MAX_PAGE: int = 5
 
-# Absolute match score: corpus-independent (no rank-based normalization).
-# score = EMBED_WEIGHT * cosine
-#       + FTS_WEIGHT   * min(matched_idf / cv_idf, 1)
-#       + TITLE_WEIGHT * min(title_matched / TITLE_REF, 1)
+# Match score = EMBED_WEIGHT * cos_norm
+#              + FTS_WEIGHT   * fts_norm
+#              + TITLE_WEIGHT * title_score
 #
-# The keyword component is weighted by IDF. Only the FTS_MAX_TERMS rarest CV
-# terms (highest IDF against the job corpus) enter the query, and a job scores
-# on the terms it actually shares with the CV. Discriminative skills ("python")
-# therefore dominate generic words ("equipe", "realisation") that match almost
-# every offer.
+# cos_norm and fts_norm are min-max normalized over the candidate set before
+# weighting: raw cosine sits in a very narrow band (~0.85-0.92 for every offer,
+# the embedding space is anisotropic) while fts_ratio spans 0-0.1, so applying
+# fixed weights to the raw values let the embedding dominate no matter what the
+# weights said. Normalizing first makes the weights mean what they say.
 EMBED_WEIGHT: float = 0.4
 FTS_WEIGHT: float = 0.5
 TITLE_WEIGHT: float = 0.1
@@ -35,14 +39,26 @@ TITLE_REF: float = 2.0
 FTS_REF: float = 15.0
 # Number of rarest CV terms kept for the keyword query and IDF weighting.
 FTS_MAX_TERMS: int = 50
+# Minimum corpus document frequency for a CV term to enter the keyword query.
+# Terms unique to the corpus (df=1) are proper nouns, emails or typos: they
+# carry a maximal IDF that inflates the normalization total and adds noise, so
+# they are dropped and only terms shared by at least two offers are kept.
+FTS_MIN_DF: int = 2
 # Jobs re-scored with the exact IDF overlap after a cheap pre-selection. Bounds
-# the per-row tsvector unnest so it never runs on the full corpus.
-CANDIDATE_K: int = 300
+# the per-row tsvector unnest so it never runs on the full corpus. Covers every
+# page (MAX_PAGE * PAGE_SIZE) with headroom for the pre-selection to differ from
+# the exact rescore.
+CANDIDATE_K: int = 1000
 
 # FTS weights for tsvector levels [C, B, A] (D=0 since unused)
 FTS_WEIGHTS: list[float] = [0.3, 0.6, 1.0]
 
 _db_pool: AsyncConnectionPool | None = None
+
+# Corpus mean embedding, used to center the cosine (see search_jobs_vector_hybrid).
+# Cached for the process lifetime: the corpus mean drifts slowly and a Cloud Run
+# instance is short-lived. None until the first search computes it.
+_centroid: str | None = None
 
 
 async def _get_pool() -> AsyncConnectionPool:
@@ -59,13 +75,34 @@ async def _get_pool() -> AsyncConnectionPool:
     return _db_pool
 
 
+def repair_inter_char_spacing(text: str) -> str:
+    """Undo a pypdf extraction artifact that space-separates every glyph.
+
+    Depending on the PDF layout (and the pypdf version), ``extract_text`` can
+    return "I n g é n i e u r  e n" instead of "Ingénieur en": one space between
+    glyphs and two between words. Detected via the mean token length, then
+    repaired by rebuilding word boundaries. No word is removed and phrases stay
+    intact, so the text is safe to embed (unlike ``clean_text_for_fts``, which
+    strips stopwords and is only meant for full-text search).
+    """
+    words = text.split()
+    if not words:
+        return text
+    avg_len = sum(len(w) for w in words) / len(words)
+    if avg_len >= 1.5:
+        return text
+    text = re.sub(r"  +", "\x00", text)
+    text = text.replace(" ", "")
+    return text.replace("\x00", " ")
+
+
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from first page of PDF"""
     reader = PdfReader(io.BytesIO(file_bytes))
     text = ""
     if reader.pages:
         text = reader.pages[0].extract_text() or ""
-    return text.strip()
+    return repair_inter_char_spacing(text).strip()
 
 
 COMMUNES_COORDS_FILE: str = os.path.join(os.path.dirname(__file__), "communes_coords.json")
@@ -135,27 +172,64 @@ def _build_fts_weights_literal() -> str:
     return "{" + ", ".join(str(w) for w in weights) + "}"
 
 
+async def _get_centroid(conn: Any, dim: int) -> str:
+    """Return the corpus mean embedding as a pgvector literal, cached per process.
+
+    Used to center the cosine: the embedding space is strongly anisotropic (every
+    offer sits at ~0.87 cosine from every other), so subtracting the shared mean
+    direction makes the cosine reflect how an offer differs from the average
+    instead of how close it is to the common direction. Falls back to a zero
+    vector (no centering) when the corpus is empty.
+    """
+    global _centroid
+    if _centroid is None:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT avg(embedding)::text FROM jobs_gold")
+            row = await cur.fetchone()
+        _centroid = row[0] if row and row[0] else "[" + ",".join(["0"] * dim) + "]"
+    return _centroid
+
+
+def _normalize(values: list[float]) -> list[float]:
+    """Min-max scale values to [0, 1]; all-equal values map to 1.0."""
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    span = hi - lo
+    if span <= 0:
+        return [1.0] * len(values)
+    return [(v - lo) / span for v in values]
+
+
 async def search_jobs_vector_hybrid(
     embedding: list[float],
     cv_text_fts: str,
     cv_text_orig: str,
     departements: list[str] | None = None,
     types_contrat: list[str] | None = None,
+    page: int = 1,
 ) -> list[dict[str, Any]]:
     """
-    Hybrid job search combining FTS + embedding + title.
+    Hybrid job search combining FTS + embedding + title, one page at a time.
 
-    Ranks jobs by an absolute match score:
+    Ranks jobs by a normalized match score:
 
-        score = EMBED_WEIGHT * cosine
-              + FTS_WEIGHT   * min(matched_idf / cv_idf, 1)
-              + TITLE_WEIGHT * min(title_matched / TITLE_REF, 1)
+        score = EMBED_WEIGHT * cos_norm
+              + FTS_WEIGHT   * fts_norm
+              + TITLE_WEIGHT * title_score
+
+    where cos_norm and fts_norm are min-max scaled over the candidate set. Raw
+    cosine barely varies (anisotropic space), so weighting the raw values let the
+    embedding dominate whatever the weights; normalizing first restores the
+    intended balance and keeps the keyword signal alive deeper in the ranking.
+
+    The cosine is centered on the corpus mean (see ``_get_centroid``) to spread
+    out those near-identical values.
 
     The keyword component is weighted by IDF. The CV is reduced to its
-    FTS_MAX_TERMS rarest terms (highest IDF against the corpus stored in
-    job_term_stats), and a job scores on the terms it actually shares with the
-    CV. Discriminative skills ("python") therefore stay decisive while generic
-    words ("equipe", "realisation") that match almost every offer are neutralized.
+    FTS_MAX_TERMS rarest terms shared by at least FTS_MIN_DF offers (unique
+    terms are proper nouns/typos, not skills), and a job scores on the terms it
+    actually shares with the CV.
 
     Candidate selection is bounded: the CANDIDATE_K best jobs by a cheap
     ts_rank/cosine/title score are re-scored with the exact IDF overlap, so the
@@ -166,9 +240,13 @@ async def search_jobs_vector_hybrid(
         prefix of lieuTravail->>'libelle' ("69 - Lyon" -> "69").
       - types_contrat: contract codes (e.g. ["CDI", "CDD"]), matched against typeContrat.
 
-    Returns top 100 jobs sorted by match score.
+    Returns PAGE_SIZE + PAGE_MARGIN jobs for the requested page (1-indexed),
+    sorted by match score; the extra PAGE_MARGIN covers the live dead-link check.
     """
     t_start = time.time()
+    page = max(1, min(page, MAX_PAGE))
+    offset = (page - 1) * PAGE_SIZE
+    limit = PAGE_SIZE + PAGE_MARGIN
 
     pool = await _get_pool()
     async with pool.connection() as conn:
@@ -178,6 +256,7 @@ async def search_jobs_vector_hybrid(
 
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
         fts_weights_literal = _build_fts_weights_literal()
+        centroid = await _get_centroid(conn, len(embedding))
 
         # Three-stage query, fully server-side:
         #  1. candidates: cheap cosine + ts_rank + title score over the corpus,
@@ -223,7 +302,9 @@ async def search_jobs_vector_hybrid(
             CROSS JOIN corpus
         ),
         ranked AS (
-            SELECT term, df, idf FROM scored_cv ORDER BY df ASC LIMIT %(max_terms)s
+            SELECT term, df, idf FROM scored_cv
+            WHERE df >= %(min_df)s
+            ORDER BY df ASC LIMIT %(max_terms)s
         ),
         fts_query AS (
             SELECT COALESCE(string_agg(term, ' | '), 'placeholder') AS q FROM ranked
@@ -234,7 +315,8 @@ async def search_jobs_vector_hybrid(
         candidates AS (
             SELECT
                 jg.job_id,
-                (1 - (jg.embedding <=> %(embedding)s))::float8 AS cosine_score,
+                (1 - ((jg.embedding - %(centroid)s::vector)
+                       <=> (%(embedding)s::vector - %(centroid)s::vector)))::float8 AS cosine_score,
                 COALESCE(ts_rank(%(fts_weights)s::float4[], jg.fts_tokens,
                                  to_tsquery('french', (SELECT q FROM fts_query))), 0)::float8 AS fts_rank_score,
                 COALESCE(ts_rank(js.title_tsv,
@@ -281,24 +363,20 @@ async def search_jobs_vector_hybrid(
         SELECT
             job_id, cosine_score,
             LEAST(1.0, idf_sum / (SELECT total FROM idf_norm))::float8 AS fts_ratio,
-            title_score,
-            LEAST(1.0, GREATEST(0.0,
-                %(embed_w)s * cosine_score
-              + %(fts_w)s * LEAST(1.0, idf_sum / (SELECT total FROM idf_norm))
-              + %(title_w)s * LEAST(1.0, (title_score * (SELECT count(*) FROM ranked)) / %(title_ref)s)
-            ))::float8 AS match_score,
-            intitule, entreprise, lieu, typeContratLibelle, dateCreation, matched_terms,
+            title_score, matched_terms,
+            intitule, entreprise, lieu, typeContratLibelle, dateCreation,
             latitude, longitude, commune, code_postal
         FROM rescored
-        ORDER BY match_score DESC
-        LIMIT %(top_k)s;
+        ORDER BY provisional_score DESC;
         """
 
         params = {
             "cv_text": cv_text_fts,
             "embedding": embedding_str,
+            "centroid": centroid,
             "fts_weights": fts_weights_literal,
             "max_terms": FTS_MAX_TERMS,
+            "min_df": FTS_MIN_DF,
             "departements": departements or None,
             "types_contrat": types_contrat or None,
             "embed_w": EMBED_WEIGHT,
@@ -307,7 +385,6 @@ async def search_jobs_vector_hybrid(
             "fts_ref": FTS_REF,
             "title_ref": TITLE_REF,
             "candidate_k": CANDIDATE_K,
-            "top_k": TOP_K,
         }
 
         async with conn.cursor() as cur:
@@ -331,21 +408,40 @@ async def search_jobs_vector_hybrid(
     t_query = time.time()
     logger.info("query_execution", duration=round(t_query - t_conn, 3), results=len(results))
 
-    # Process results (already sorted by match_score)
+    # Normalize each signal over the candidate set, then fuse. Doing this in
+    # Python (rather than SQL) keeps the SQL free of window functions and lets
+    # the raw cosine/fts values stay available for logging.
+    cos_norm = _normalize([r[1] for r in results])
+    fts_norm = _normalize([r[2] for r in results])
+    scored = [
+        (
+            r,
+            EMBED_WEIGHT * cos_norm[i] + FTS_WEIGHT * fts_norm[i] + TITLE_WEIGHT * r[3],
+        )
+        for i, r in enumerate(results)
+    ]
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # The page slice; the PAGE_MARGIN extra rows absorb the dead-link check that
+    # runs after this function.
+    page_rows = scored[offset : offset + limit]
+
+    t_process = time.time()
+    logger.info("processing", duration=round(t_process - t_query, 3))
+
     hybrid_results = []
-    for r in results:
+    for r, match_score in page_rows:
         (
             job_id,
             cosine_score,
             fts_score,
             title_score,
-            match_score,
+            matched_terms,
             intitule,
             entreprise,
             lieu,
             type_contrat,
             date_creation,
-            matched_terms,
             raw_latitude,
             raw_longitude,
             commune,
@@ -362,23 +458,21 @@ async def search_jobs_vector_hybrid(
         hybrid_results.append(
             {
                 "job_id": job_id,
-                "embedding_score": cosine_score,
-                "fts_score": fts_score,
-                "title_score": title_score,
-                "combined_score": match_score,
-                "intitule": intitule,
-                "entreprise": entreprise,
-                "lieu": lieu,
-                "type_contrat": type_contrat,
-                "date_creation": date_creation,
+                "similarity_score": round(max(0.0, min(1.0, match_score)), 2),
+                "embedding_score": round(cosine_score, 4),
+                "fts_score": round(fts_score, 4),
+                "title_score": round(title_score, 4),
+                "combined_score": round(match_score, 4),
+                "intitule": intitule or "",
+                "entreprise": entreprise or "",
+                "lieu": lieu or "",
+                "type_contrat": type_contrat or "",
+                "date_creation": date_creation or "",
                 "matching_terms": matched_terms or [],
                 "latitude": latitude,
                 "longitude": longitude,
             }
         )
-
-    t_process = time.time()
-    logger.info("processing", duration=round(t_process - t_query, 3))
 
     # Summary stats
     fts_non_zero = sum(1 for r in hybrid_results if r["fts_score"] > 0)
@@ -389,6 +483,7 @@ async def search_jobs_vector_hybrid(
         title_weight=TITLE_WEIGHT,
         fts_non_zero=fts_non_zero,
         total=len(hybrid_results),
+        page=page,
     )
 
     if hybrid_results:
@@ -401,25 +496,4 @@ async def search_jobs_vector_hybrid(
             match=round(top["combined_score"], 4),
         )
 
-    processed_results = []
-    for job in hybrid_results:
-        processed_results.append(
-            {
-                "job_id": job["job_id"],
-                "similarity_score": round(max(0.0, min(1.0, job["combined_score"])), 2),
-                "embedding_score": round(job["embedding_score"], 4),
-                "fts_score": round(job["fts_score"], 4),
-                "title_score": round(job["title_score"], 4),
-                "combined_score": round(job["combined_score"], 4),
-                "intitule": job["intitule"] or "",
-                "entreprise": job["entreprise"] or "",
-                "lieu": job["lieu"] or "",
-                "type_contrat": job["type_contrat"] or "",
-                "date_creation": job["date_creation"] or "",
-                "matching_terms": job["matching_terms"],
-                "latitude": job["latitude"],
-                "longitude": job["longitude"],
-            }
-        )
-
-    return processed_results
+    return hybrid_results

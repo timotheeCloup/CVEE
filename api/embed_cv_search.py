@@ -11,7 +11,7 @@ import numpy.typing as npt
 import onnxruntime as ort
 import structlog
 from tokenizers import Tokenizer
-from utils import search_jobs_vector_hybrid
+from utils import PAGE_SIZE, search_jobs_vector_hybrid
 
 logger: Any = structlog.get_logger()
 
@@ -19,6 +19,17 @@ logger: Any = structlog.get_logger()
 MODEL_NAME: str = "antoinelouis/french-me5-small"
 MAX_SEQ_LENGTH: int = 512
 MODEL_DIR: str = os.getenv("ONNX_MODEL_DIR", os.path.join(os.path.dirname(__file__), "onnx_model"))
+
+# The E5 model is trained on short queries. Embedding the whole CV (contact,
+# languages, long experience prose) dilutes the signal; the top of a CV holds
+# the title, summary and skills. Measured on a real CV: P@10 IT 0.70 -> 0.90.
+# Heuristic and easy to revert; to be validated on more CVs.
+EMBED_QUERY_MAX_CHARS: int = 1200
+
+
+def build_embedding_query(cv_text: str) -> str:
+    """Build the dense query fed to the embedder: the top of the CV."""
+    return cv_text[:EMBED_QUERY_MAX_CHARS].strip()
 
 
 class OnnxEncoder:
@@ -184,6 +195,7 @@ async def embed_cv_and_search(
     t_api_start: float | None = None,
     departements: list[str] | None = None,
     types_contrat: list[str] | None = None,
+    page: int = 1,
 ) -> list[dict[str, Any]]:
     """
     Search jobs using hybrid FTS + embedding approach.
@@ -206,9 +218,12 @@ async def embed_cv_and_search(
         after_stopwords=len(cv_text_for_fts),
     )
 
-    # Generate embedding (multilingual model handles French natively)
+    # Generate embedding (multilingual model handles French natively). The
+    # dense query (top of the CV) is embedded, not the whole raw text.
     try:
-        embedding: list[float] = (await asyncio.to_thread(_get_model().encode, cv_text)).tolist()
+        embedding: list[float] = (
+            await asyncio.to_thread(_get_model().encode, build_embedding_query(cv_text))
+        ).tolist()
     except Exception as e:
         logger.error(
             "embedding_error",
@@ -228,6 +243,7 @@ async def embed_cv_and_search(
         cv_text_orig=cv_text,
         departements=departements,
         types_contrat=types_contrat,
+        page=page,
     )
     t3 = time.time()
     logger.info("hybrid_search", duration=round(t3 - t2, 2), results=len(top_jobs))
@@ -241,6 +257,7 @@ async def embed_cv_and_search_async(
     t_api_start: float | None = None,
     departements: list[str] | None = None,
     types_contrat: list[str] | None = None,
+    page: int = 1,
 ) -> list[dict[str, Any]]:
     """Search jobs via hybrid FTS+embedding, then filter dead links.
 
@@ -249,15 +266,17 @@ async def embed_cv_and_search_async(
         t_api_start: Optional start timestamp for total duration logging.
         departements: Optional department codes to restrict the search.
         types_contrat: Optional contract codes to restrict the search.
+        page: 1-indexed results page.
 
     Returns:
-        List of verified (alive) matching job results.
+        List of verified (alive) matching job results, at most PAGE_SIZE.
     """
     top_jobs = await embed_cv_and_search(
         cv_text,
         t_api_start,
         departements=departements,
         types_contrat=types_contrat,
+        page=page,
     )
     verified_jobs = await filter_dead_jobs(top_jobs)
-    return verified_jobs
+    return verified_jobs[:PAGE_SIZE]

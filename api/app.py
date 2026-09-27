@@ -11,7 +11,7 @@ from models import EmbedResponse, HealthResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from utils import extract_text_from_pdf
+from utils import MAX_PAGE, extract_text_from_pdf
 
 structlog.configure(
     processors=[
@@ -44,12 +44,13 @@ async def health() -> HealthResponse:
 
 
 @app.post("/embed-cv", response_model=EmbedResponse)
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def embed_cv(
     request: Request,
     file: UploadFile = File(...),
     departements: str = Form(""),
     types_contrat: str = Form(""),
+    page: int = Form(1),
 ) -> EmbedResponse:
     """Extract text from uploaded PDF, generate embedding, and return matching jobs.
 
@@ -57,13 +58,18 @@ async def embed_cv(
     `departements` holds department codes (e.g. "69,75") and `types_contrat` holds
     contract codes (e.g. "CDI,CDD"). Empty values mean no filter.
 
-    Rate-limited to 5 requests/minute (costly compute: embedding model + DB search).
+    `page` selects the results page (1-indexed, up to MAX_PAGE); each page holds
+    PAGE_SIZE offers. Paginating re-runs the (cheap) ranking and live-checks the
+    page's links, so the rate limit is raised to allow paging through a CV.
+
+    Rate-limited to 30 requests/minute (costly compute: embedding model + DB search).
     """
     if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be PDF")
 
     departements_list = [d.strip() for d in departements.split(",") if d.strip()]
     types_contrat_list = [t.strip() for t in types_contrat.split(",") if t.strip()]
+    page = max(1, min(page, MAX_PAGE))
 
     t_start = time.time()
 
@@ -95,6 +101,7 @@ async def embed_cv(
             t_api_start=t_start,
             departements=departements_list,
             types_contrat=types_contrat_list,
+            page=page,
         )
     except Exception as e:
         logger.error(
