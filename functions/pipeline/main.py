@@ -18,7 +18,8 @@ def pipeline_cf(request):
     """Cloud Function: run ETL pipeline bronze → silver → gold.
 
     Args:
-        request: Flask request object. Query params: ``days`` (int, default 1).
+        request: Flask request object. Query params: ``days`` (int, default 1),
+            ``force`` (skip the Databricks-already-produced check, for backfills).
 
     Returns:
         Tuple (response_body, status_code).
@@ -35,12 +36,18 @@ def pipeline_cf(request):
         else:
             logger.info("daily_mode")
 
+        force = request.args.get("force", "").lower() in ("1", "true", "yes")
+        if force:
+            logger.info("force_mode")
+
         max_jobs = request.args.get("max_jobs")
         if max_jobs:
             max_jobs = int(max_jobs)
             logger.info("max_jobs_limit", max_jobs=max_jobs)
 
-        silver_path, gold_path = run_pipeline(bucket_name, days=days, max_jobs=max_jobs)
+        silver_path, gold_path = run_pipeline(
+            bucket_name, days=days, max_jobs=max_jobs, force=force
+        )
 
         if silver_path is None:
             logger.info("pipeline_no_output")
