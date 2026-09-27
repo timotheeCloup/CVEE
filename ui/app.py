@@ -185,6 +185,50 @@ st.markdown(
     .footer-link:hover {
         color: #667eea;
     }
+
+    /* Pagination: plain gray controls, distinct from the gradient CTA button.
+       Selectors include the stButton wrapper so they beat the button rule above. */
+    [class*="st-key-page_"] div[data-testid="stButton"] > button {
+        background: #f2f2f2 !important;
+        color: #444 !important;
+        border: none !important;
+        box-shadow: none !important;
+        font-weight: 500 !important;
+    }
+    [class*="st-key-page_"] div[data-testid="stButton"] > button:hover {
+        background: #e4e4e4 !important;
+        color: #111 !important;
+        transform: none !important;
+    }
+    [class*="st-key-page_"] div[data-testid="stButton"] > button:disabled {
+        background: #f7f7f7 !important;
+        color: #bbb !important;
+    }
+    [class*="st-key-page_btn_"] div[data-testid="stButton"],
+    .st-key-page_active div[data-testid="stButton"],
+    .st-key-page_prev div[data-testid="stButton"] {
+        display: flex;
+        justify-content: center;
+    }
+    [class*="st-key-page_btn_"] div[data-testid="stButton"] > button,
+    .st-key-page_active div[data-testid="stButton"] > button,
+    .st-key-page_prev div[data-testid="stButton"] > button {
+        flex: 0 0 38px !important;
+        width: 38px !important;
+        height: 38px !important;
+        min-height: 38px !important;
+        padding: 0 !important;
+        border-radius: 50% !important;
+    }
+    .st-key-page_active div[data-testid="stButton"] > button {
+        background: #1c1c1c !important;
+        color: #fff !important;
+        font-weight: 600 !important;
+    }
+    .st-key-page_active div[data-testid="stButton"] > button:hover {
+        background: #1c1c1c !important;
+        color: #fff !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -420,21 +464,24 @@ def render_feed(jobs: list[dict]) -> None:
 
 
 def render_pagination(page: int, count: int) -> None:
-    """Render the previous/next controls below the offer feed."""
-    prev_col, info_col, next_col = st.columns([1, 2, 1])
-    with prev_col:
-        if st.button("◀ Précédente", disabled=page <= 1, use_container_width=True):
+    """Numbered page controls: clickable pages, active page highlighted, next arrow."""
+    has_next = page < MAX_PAGE and count >= PAGE_SIZE
+    # Spacers on both sides keep the controls centered.
+    slots = st.columns([2.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 3, 2.5])
+    inner = slots[1:-1]
+    with inner[0]:
+        if st.button("‹", key="page_prev", disabled=page <= 1):
             st.session_state.page = page - 1
             st.rerun()
-    with info_col:
-        st.markdown(
-            f"<div style='text-align:center;padding-top:8px;color:#888;'>"
-            f"Page {page} / {MAX_PAGE}</div>",
-            unsafe_allow_html=True,
-        )
-    with next_col:
-        has_more = page < MAX_PAGE and count >= PAGE_SIZE
-        if st.button("Suivante ▶", disabled=not has_more, use_container_width=True):
+    for i, number in enumerate(range(1, MAX_PAGE + 1)):
+        with inner[i + 1]:
+            if number == page:
+                st.button(str(number), key="page_active")
+            elif st.button(str(number), key=f"page_btn_{number}"):
+                st.session_state.page = number
+                st.rerun()
+    with inner[-1]:
+        if st.button("Suivant ›", key="page_next", disabled=not has_next, use_container_width=True):
             st.session_state.page = page + 1
             st.rerun()
 
@@ -529,8 +576,6 @@ if uploaded_file is not None:
     top_jobs = cache[cache_key]
 
     if top_jobs:
-        st.success(f"🔥 {len(top_jobs)} offres — page {page}")
-
         if st.session_state.show_map:
             feed_col, map_col = st.columns([0.62, 0.38], gap="large")
             with feed_col:
