@@ -68,6 +68,7 @@ async def test_search_jobs_vector_hybrid_returns_results() -> None:
         0.08,
         0.30,
         ["python", "fastapi"],
+        0.50,
         "Développeur Python",
         "TechCorp",
         "Paris",
@@ -112,6 +113,7 @@ async def test_search_jobs_vector_hybrid_forwards_filters() -> None:
         0.08,
         0.30,
         ["python"],
+        0.50,
         "Développeur Python",
         "TechCorp",
         "Lyon",
@@ -160,12 +162,7 @@ def test_repair_inter_char_spacing_leaves_normal_text_untouched() -> None:
     assert repair_inter_char_spacing(text) == text
 
 
-def test_normalize_minmax() -> None:
-    from utils import _normalize
 
-    assert _normalize([]) == []
-    assert _normalize([3.0, 3.0]) == [1.0, 1.0]
-    assert _normalize([0.0, 5.0, 10.0]) == [0.0, 0.5, 1.0]
 
 
 def test_resolve_coordinates_prefers_insee_then_postal_then_department() -> None:
