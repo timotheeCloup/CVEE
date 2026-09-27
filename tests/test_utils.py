@@ -162,9 +162,6 @@ def test_repair_inter_char_spacing_leaves_normal_text_untouched() -> None:
     assert repair_inter_char_spacing(text) == text
 
 
-
-
-
 def test_resolve_coordinates_prefers_insee_then_postal_then_department() -> None:
     from utils import resolve_coordinates
 
