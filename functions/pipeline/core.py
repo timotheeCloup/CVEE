@@ -73,6 +73,12 @@ def clean_html(text):
 def _extract_field(val, field="libelle"):
     if _is_na(val):
         return ""
+    # ``map_elements`` hands a nested List(Struct) cell to the callback as a
+    # Polars Series, not a Python list. Unwrap it so the field extraction below
+    # sees the same structure as a plain list (otherwise ``str(val)`` would
+    # embed the Series repr into the text).
+    if isinstance(val, pl.Series):
+        val = val.to_list()
     if isinstance(val, str):
         try:
             val = json.loads(val)

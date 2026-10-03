@@ -4,6 +4,9 @@
 # CVEE Databricks — Silver Layer
 # Reads raw jobs from GCS, cleans HTML, aggregates JSON fields,
 # merges into Delta table cvee.jobs_silver.
+#
+# The transform mirrors functions/pipeline/core.py (the reference Cloud
+# Function pipeline) so both engines produce the same silver output.
 # ---------------------------------------------------------------------------
 # COMMAND ----------
 
@@ -69,31 +72,40 @@ print("Cleaning HTML and aggregating JSON fields ...")
 
 clean_html_udf = udf(clean_html, StringType())
 
+
+def _aggregate(column, field):
+    """Join a nested struct array's ``field`` values with spaces.
+
+    Mirrors ``_extract_field`` in functions/pipeline/core.py (the reference
+    Cloud Function pipeline): null and empty values are skipped before joining.
+    """
+    return F.expr(
+        f"concat_ws(' ', filter(transform({column}, x -> x.{field}), "
+        f"x -> x is not null and x <> ''))"
+    )
+
+
 df_cleaned = (
     df_raw.withColumn("description_clean", clean_html_udf(col("description")))
-    .withColumn(
-        "competences_aggregated",
-        F.expr("concat_ws(' ', transform(competences, x -> x.libelle))"),
-    )
-    .withColumn(
-        "formations_aggregated",
-        F.expr("concat_ws(' ', transform(formations, x -> x.domaineLibelle))"),
-    )
-    .withColumn(
-        "qualites_aggregated",
-        F.expr("concat_ws(' ', transform(qualitesProfessionnelles, x -> x.libelle))"),
-    )
+    .withColumn("competences_aggregated", _aggregate("competences", "libelle"))
+    .withColumn("formations_aggregated", _aggregate("formations", "domaineLibelle"))
+    .withColumn("qualites_aggregated", _aggregate("qualitesProfessionnelles", "libelle"))
 )
 
+# Same field order and 5000-char cap as core.py's ``vector_text_input``.
 df_final = df_cleaned.withColumn(
     "vector_text_input",
-    concat_ws(
-        " ",
-        col("intitule"),
-        col("description_clean"),
-        col("competences_aggregated"),
-        col("formations_aggregated"),
-        col("qualites_aggregated"),
+    F.substring(
+        concat_ws(
+            " ",
+            col("intitule"),
+            col("description_clean"),
+            col("competences_aggregated"),
+            col("formations_aggregated"),
+            col("qualites_aggregated"),
+        ),
+        1,
+        5000,
     ),
 )
 

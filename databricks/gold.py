@@ -4,9 +4,12 @@
 # CVEE Databricks — Gold Layer
 # Collects unprocessed jobs from Silver, generates embeddings on driver
 # (no Pandas UDF to avoid OOM on Community Edition), merges into Delta.
+#
+# Embedding runtime (model, max_seq_length, batch size) mirrors
+# functions/pipeline/core.py so both engines produce comparable vectors.
 # ---------------------------------------------------------------------------
 # COMMAND ----------
-# MAGIC %pip install sentence-transformers==2.2.2 torch huggingface_hub==0.24.0 --quiet
+# MAGIC %pip install "sentence-transformers>=2.2.2" torch --quiet
 
 # COMMAND ----------
 
@@ -60,10 +63,11 @@ else:
 
     torch.set_num_threads(1)
     model = SentenceTransformer("antoinelouis/french-me5-small", device="cpu")
+    model.max_seq_length = 512
 
     with torch.no_grad():
         embeddings = model.encode(
-            texts, batch_size=16, show_progress_bar=True, convert_to_numpy=True
+            texts, batch_size=8, show_progress_bar=True, convert_to_numpy=True
         )
 
     print(f"  {len(embeddings)} embeddings ({embeddings.shape[1]} dims)")
