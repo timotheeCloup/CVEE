@@ -12,9 +12,8 @@
 # MAGIC %pip install google-cloud-storage --quiet
 
 # COMMAND ----------
-# Load GCS credentials from _secrets.py (gitignored, never committed).
-# Copy _secrets_template.py → _secrets.py and fill in the values.
-# MAGIC %run ./_secrets
+# GCS credentials come from a Databricks secret scope (the service-account
+# JSON), so no key lives in the repo or in a workspace notebook.
 
 # COMMAND ----------
 
@@ -33,17 +32,11 @@ from common import JSON_COLS
 GCS_BUCKET = "cvee-20260208"
 SILVER_TABLE = "cvee.jobs_silver"
 GOLD_TABLE = "cvee.jobs_gold"
+GCS_CREDENTIALS_SCOPE = "cvee"
+GCS_CREDENTIALS_KEY = "gcs-service-account-json"
 
-_creds = service_account.Credentials.from_service_account_info(
-    {
-        "type": "service_account",
-        "project_id": GCS_BUCKET,
-        "private_key_id": _gcs_key_id,
-        "private_key": _gcs_key,
-        "client_email": _gcs_email,
-        "token_uri": "https://oauth2.googleapis.com/token",
-    }
-)
+_sa_info = _json.loads(dbutils.secrets.get(scope=GCS_CREDENTIALS_SCOPE, key=GCS_CREDENTIALS_KEY))
+_creds = service_account.Credentials.from_service_account_info(_sa_info)
 _sclient = storage.Client(project=GCS_BUCKET, credentials=_creds)
 _bucket = _sclient.bucket(GCS_BUCKET)
 print("GCS client ready.")
