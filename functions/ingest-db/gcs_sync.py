@@ -62,6 +62,40 @@ def read_parquet_from_gcs(gcs_path):
     return pd.read_parquet(gcs_path, filesystem=fs)
 
 
+def _silver_upsert_sql(columns):
+    """Build an idempotent upsert for ``jobs_silver``.
+
+    ``ON CONFLICT DO NOTHING`` protected against duplicates but also made
+    re-ingestion unable to *correct* an existing row (a re-run was a silent
+    no-op). ``DO UPDATE`` lets a corrected batch overwrite stale fields while
+    staying idempotent: the ``IS DISTINCT FROM`` guard rewrites only rows that
+    actually changed, so re-running the same batch writes nothing.
+    ``ingestion_date`` is left untouched so retention keeps ageing offers by
+    their first-seen date.
+    """
+    update_cols = [c for c in columns if c not in ("job_id", "ingestion_date")]
+    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    guard = " OR ".join(f"jobs_silver.{c} IS DISTINCT FROM EXCLUDED.{c}" for c in update_cols)
+    return (
+        f"INSERT INTO jobs_silver ({', '.join(columns)}) VALUES %s "  # nosec B608 -- identifiers come from the parquet schema, values via execute_values
+        f"ON CONFLICT (job_id) DO UPDATE SET {set_clause} WHERE {guard};"
+    )
+
+
+def _gold_upsert_sql():
+    """Idempotent upsert for ``jobs_gold``: refresh the embedding on conflict.
+
+    The ``BEFORE INSERT OR UPDATE`` trigger on jobs_gold recomputes
+    ``fts_tokens`` from jobs_silver, so the keyword signal stays in sync when a
+    correction changes the silver text.
+    """
+    return (
+        "INSERT INTO jobs_gold (job_id, embedding) VALUES %s "
+        "ON CONFLICT (job_id) DO UPDATE SET embedding = EXCLUDED.embedding "
+        "WHERE jobs_gold.embedding IS DISTINCT FROM EXCLUDED.embedding;"
+    )
+
+
 def main(
     bucket_name,
     sb_host,
@@ -143,8 +177,7 @@ def main(
             if rows:
                 # One round trip per page instead of one per row: the row-by-row
                 # loop was the reason the ingest exceeded the workflow timeout.
-                sql = f"INSERT INTO jobs_silver ({', '.join(cols)}) VALUES %s ON CONFLICT (job_id) DO NOTHING;"  # nosec B608 -- parameterized via execute_values
-                execute_values(cur, sql, rows, page_size=200)
+                execute_values(cur, _silver_upsert_sql(cols), rows, page_size=200)
 
             conn.commit()
             logger.info("silver_inserted", path=gcs_path, count=len(rows))
@@ -191,8 +224,7 @@ def main(
             if rows:
                 # Batch the 384-dim vectors: one round trip per page, and the
                 # per-row FTS trigger still runs server-side for each row.
-                sql = "INSERT INTO jobs_gold (job_id, embedding) VALUES %s ON CONFLICT (job_id) DO NOTHING;"
-                execute_values(cur, sql, rows, page_size=200)
+                execute_values(cur, _gold_upsert_sql(), rows, page_size=200)
 
             conn.commit()
             logger.info("gold_inserted", path=gcs_path, count=len(rows))
