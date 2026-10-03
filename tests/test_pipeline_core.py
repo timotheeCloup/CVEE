@@ -100,6 +100,16 @@ async def test_extract_field_numpy_array() -> None:
 
 
 @pytest.mark.asyncio
+async def test_extract_field_polars_struct_series() -> None:
+    # ``map_elements`` passes a nested List(Struct) cell as a Polars Series;
+    # it must be unwrapped, not stringified (which embedded the Series repr).
+    from core import _extract_field
+
+    series = pl.Series([{"libelle": "Python"}, {"libelle": "GCP"}])
+    assert _extract_field(series, "libelle") == "Python GCP"
+
+
+@pytest.mark.asyncio
 async def test_serialize_json_col_none() -> None:
     from core import serialize_json_col
 
@@ -351,3 +361,46 @@ async def test_run_pipeline_max_jobs() -> None:
         silver, gold = run_pipeline("bucket", days=None, max_jobs=3)
         assert silver is not None
         assert len(mock_model.encode.call_args[0][0]) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_aggregates_nested_structs() -> None:
+    # Nested List(Struct) columns must be flattened into the embedding text
+    # (title, description, competences, formations, qualites), never stringified
+    # as a Polars Series repr.
+    mock_fs = MagicMock()
+    mock_fs.ls = MagicMock(
+        return_value=[
+            {"name": "gs://bucket/jobs_raw/test.parquet", "updated": "2025-06-01T00:00:00Z"}
+        ]
+    )
+
+    test_df = pl.DataFrame(
+        {
+            "id": ["J1"],
+            "intitule": ["Dev Python"],
+            "description": ["<p>Python</p>"],
+            "competences": [[{"libelle": "Python"}, {"libelle": "GCP"}]],
+            "formations": [[{"domaineLibelle": "Informatique"}]],
+            "qualitesProfessionnelles": [[{"libelle": "Rigoureux"}]],
+        }
+    )
+
+    mock_model = MagicMock()
+    mock_model.encode = MagicMock(return_value=np.array([[0.1] * 384]))
+
+    with (
+        patch("core._databricks_already_produced", return_value=False),
+        patch("core.gcsfs.GCSFileSystem", return_value=mock_fs),
+        patch("core.pl.read_parquet", return_value=test_df),
+        patch("core.SentenceTransformer", return_value=mock_model),
+        patch.object(pl.DataFrame, "write_parquet"),
+    ):
+        from core import run_pipeline
+
+        silver, gold = run_pipeline("bucket", days=None)
+
+    assert silver is not None
+    texts = mock_model.encode.call_args[0][0]
+    assert texts == ["Dev Python Python Python GCP Informatique Rigoureux"]
+    assert "shape:" not in texts[0]

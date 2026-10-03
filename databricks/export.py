@@ -4,6 +4,9 @@
 # CVEE Databricks — Export to GCS
 # Reads Delta via Spark, uploads Parquet to GCS via google-cloud-storage.
 # (Spark GCS connector blocked by Spark Connect — Python client as workaround.)
+#
+# Exports the same silver/gold schema as functions/pipeline/core.py (the
+# reference Cloud Function pipeline) so the ingest treats both identically.
 # ---------------------------------------------------------------------------
 # COMMAND ----------
 # MAGIC %pip install google-cloud-storage --quiet
@@ -48,7 +51,11 @@ print("GCS client ready.")
 # COMMAND ----------
 
 print("Reading silver Delta table ...")
-df_silver = spark.table(SILVER_TABLE).drop("vector_text_input")
+# The Delta table can carry columns from earlier API schemas that the current
+# raw feed no longer returns (kept alive by the merge's schema alignment).
+# Drop them so the export matches the reference pipeline's silver schema.
+STALE_SILVER_COLUMNS = ["complementExercice"]
+df_silver = spark.table(SILVER_TABLE).drop(*STALE_SILVER_COLUMNS)
 
 for col_name in JSON_COLS:
     if col_name in df_silver.columns:
@@ -56,6 +63,8 @@ for col_name in JSON_COLS:
 
 max_date = df_silver.agg(F.max("ingestion_date")).collect()[0][0]
 df_silver = df_silver.filter(F.col("ingestion_date") == max_date)
+# core.py stores ingestion_date as a "YYYY-MM-DD" string.
+df_silver = df_silver.withColumn("ingestion_date", F.date_format("ingestion_date", "yyyy-MM-dd"))
 
 _pdf_silver = df_silver.toPandas()
 _pdf_silver.attrs = {}
@@ -64,8 +73,12 @@ print(f"  {len(_pdf_silver)} rows in silver")
 # COMMAND ----------
 
 print("Reading gold Delta table ...")
-df_gold = spark.table(GOLD_TABLE)
-df_gold = df_gold.filter(F.col("ingestion_date") == max_date)
+# core.py exports gold as [job_id, embedding] only.
+df_gold = (
+    spark.table(GOLD_TABLE)
+    .filter(F.col("ingestion_date") == max_date)
+    .select("job_id", "embedding")
+)
 
 _pdf_gold = df_gold.toPandas()
 _pdf_gold.attrs = {}
