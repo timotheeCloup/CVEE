@@ -45,3 +45,24 @@ def test_no_files_returns_empty() -> None:
         from gcs_sync import get_latest_batch_parquet_files
 
         assert get_latest_batch_parquet_files("b", "jobs_silver/") == []
+
+
+def test_silver_upsert_updates_changed_columns() -> None:
+    from gcs_sync import _silver_upsert_sql
+
+    sql = _silver_upsert_sql(["job_id", "intitule", "ingestion_date"])
+    assert "ON CONFLICT (job_id) DO UPDATE SET" in sql
+    assert "intitule = EXCLUDED.intitule" in sql
+    # job_id is the conflict key and ingestion_date keeps its first-seen value.
+    assert "job_id = EXCLUDED.job_id" not in sql
+    assert "ingestion_date = EXCLUDED.ingestion_date" not in sql
+    # Only rewrite rows whose values actually changed (idempotent re-runs).
+    assert "jobs_silver.intitule IS DISTINCT FROM EXCLUDED.intitule" in sql
+
+
+def test_gold_upsert_refreshes_embedding() -> None:
+    from gcs_sync import _gold_upsert_sql
+
+    sql = _gold_upsert_sql()
+    assert "ON CONFLICT (job_id) DO UPDATE SET embedding = EXCLUDED.embedding" in sql
+    assert "jobs_gold.embedding IS DISTINCT FROM EXCLUDED.embedding" in sql
